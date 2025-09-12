@@ -1,0 +1,58 @@
+{
+  "llm": {
+    "endpoint": "http://127.0.0.1:1234/v1/chat/completions",
+    "model": "local-model",
+    "temperature": 0.1,
+    "max_tokens": 4000,
+    "timeout": 120,
+    "retry_attempts": 3,
+    "retry_delay": 5
+  },
+  "processing": {
+    "root_directory": "D:/Medical Wizard/VFP Entire Codebase/VFP Comment Settup/VFP_Files_Copy",
+    "file_extensions": [
+      ".prg",
+      ".PRG",
+      ".spr",
+      ".SPR"
+    ],
+    "output_suffix": "_commented",
+    "batch_size": 1,
+    "retry_attempts": 3,
+    "preserve_structure": true,
+    "skip_patterns": [
+      "_commented",
+      "_pretty",
+      "_backup",
+      "_temp"
+    ],
+    "parallel_workers": 1,
+    "validate_before_save": true,
+    "create_backups": true,
+    "strict_validation": true
+  },
+  "prompts": {
+    "system_prompt": "You are an expert Visual FoxPro (VFP) programmer tasked with adding comprehensive comments to legacy VFP code.\n\n🚨 CRITICAL REQUIREMENT - READ CAREFULLY 🚨\nYOU MUST NEVER MODIFY THE ORIGINAL CODE IN ANY WAY!\n- DO NOT change variable names\n- DO NOT change function calls\n- DO NOT change logic conditions\n- DO NOT change string values\n- DO NOT change numeric values\n- DO NOT add, remove, or modify ANY code lines\n- ONLY ADD COMMENT LINES (starting with * or &&)\n\nYour ONLY task is to add explanatory comments while keeping the original code 100% intact.\n\nComment Guidelines:\n1. Add a comprehensive header comment explaining the file's purpose\n2. Include the file's location path in the header\n3. Add comments before complex logic blocks using (* comment)\n4. Use inline comments (&&) for single-line clarifications\n5. Document input parameters, return values, and database operations\n6. Explain business logic and error handling patterns\n\nComment Syntax:\n- Full-line comments: * This is a full-line comment\n- Inline comments: SOME_CODE && This explains the code\n\n🚨 VALIDATION REMINDER 🚨\nYour response will be validated to ensure NO original code was changed.\nIf ANY original code is modified, your response will be REJECTED.\n\nReturn the EXACT original code with ONLY comments added.",
+    "user_prompt_template": "🚨 CRITICAL: DO NOT MODIFY ANY ORIGINAL CODE - ONLY ADD COMMENTS 🚨\n\nPlease add comprehensive comments to this Visual FoxPro code file:\n\nFile: {filename}\nLocation: {relative_path}\nSize: {file_size} bytes\n\nINSTRUCTIONS:\n1. Add a header comment block explaining the file's purpose\n2. Add section comments for logical code blocks  \n3. Add inline comments for complex operations\n4. Document any database tables, parameters, or dependencies\n5. Keep ALL original code exactly as provided\n\n🚨 VALIDATION WARNING 🚨\nThe original code will be extracted and compared with your response.\nANY changes to the original code will cause REJECTION of your response.\n\nOriginal VFP Code:\n```foxpro\n{code_content}\n```\n\nReturn the same code with comprehensive comments added in VFP syntax.",
+    "comment_style": "comprehensive",
+    "code_preservation": "strict",
+    "max_retries_for_validation": 3
+  },
+  "logging": {
+    "log_level": "INFO",
+    "log_file": "vfp_commenting.log",
+    "progress_file": "processing_progress.json",
+    "enable_console_logging": true,
+    "enable_file_logging": true,
+    "log_validation_details": true
+  },
+  "safety": {
+    "require_code_hash_match": true,
+    "require_line_count_match": true,
+    "require_manual_confirmation": false,
+    "max_file_size_mb": 10,
+    "backup_before_processing": true,
+    "validate_vfp_syntax": true,
+    "halt_on_validation_failure": true
+  }
+}

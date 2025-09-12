@@ -1,0 +1,93 @@
+# VFP Commenting Tool Dependencies
+# ================================
+# Required Python packages for the Visual FoxPro legacy code commenting automation tool
+
+# Core dependencies
+requests>=2.31.0          # For HTTP requests to LLM API
+click>=8.1.0              # Command-line interface framework
+pathlib>=1.0.1            # Modern path handling (built-in Python 3.4+)
+
+# Progress and UI
+tqdm>=4.65.0              # Progress bars with nested folder support
+colorama>=0.4.6           # Colored terminal output (cross-platform)
+
+# Retry logic and reliability
+tenacity>=8.2.0           # Retry logic with exponential backoff
+
+# JSON handling (built-in but explicit)
+# json - Built-in Python module
+
+# Logging and configuration (built-in)
+# logging - Built-in Python module
+# configparser - Built-in Python module (if needed)
+
+# File operations (built-in)
+# os - Built-in Python module
+# shutil - Built-in Python module
+
+# Async processing (optional)
+asyncio>=3.4.3            # For optional parallel processing
+
+# Development and testing (optional)
+pytest>=7.0.0             # Testing framework (development only)
+pytest-mock>=3.10.0       # Mocking for tests (development only)
+
+# Data structures and utilities
+dataclasses>=0.6          # Data classes (built-in Python 3.7+)
+typing>=3.7.4             # Type hints (built-in Python 3.5+)
+
+# Threading and concurrency (built-in)
+# threading - Built-in Python module
+# concurrent.futures - Built-in Python module (Python 3.2+)
+
+# Date and time handling (built-in)
+# datetime - Built-in Python module
+# time - Built-in Python module
+
+# Hash and validation (built-in)
+# hashlib - Built-in Python module
+# difflib - Built-in Python module
+
+# Regular expressions (built-in)
+# re - Built-in Python module
+
+# Installation Instructions:
+# =========================
+# 1. Create virtual environment (recommended):
+#    python -m venv vfp_env
+#
+# 2. Activate virtual environment:
+#    Windows: vfp_env\Scripts\activate
+#    Linux/Mac: source vfp_env/bin/activate
+#
+# 3. Install dependencies:
+#    pip install -r requirements.txt
+#
+# 4. Verify installation:
+#    python main.py --version
+#
+# Minimum Python Version: 3.8+
+# Recommended Python Version: 3.9+ for best compatibility
+
+# Optional dependencies for enhanced functionality:
+# ================================================
+
+# Rich terminal formatting (alternative to colorama)
+# rich>=13.0.0            # Rich text and beautiful formatting in terminal
+
+# Better HTTP client (alternative to requests)  
+# httpx>=0.24.0           # Modern async HTTP client
+
+# Progress tracking enhancements
+# alive-progress>=3.1.0   # Alternative progress bars
+
+# Configuration file formats (if needed beyond JSON)
+# pyyaml>=6.0             # YAML configuration support
+# toml>=0.10.2            # TOML configuration support
+
+# Memory profiling (development/debugging)
+# memory-profiler>=0.60.0 # Memory usage profiling
+# psutil>=5.9.0           # System and process utilities
+
+# Note: This tool is designed to work with minimal dependencies to ensure
+# reliability and easy deployment in legacy environments.

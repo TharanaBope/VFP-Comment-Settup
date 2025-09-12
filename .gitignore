@@ -1,3 +1,6 @@
 # Ignore Visual FoxPro generated files
 compare/
 VFP_Files_Copy/
+
+# Ignore Python virtual environment
+venv/

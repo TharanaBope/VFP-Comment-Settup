@@ -1,0 +1,4 @@
+2025-09-12 13:40:08,674 - llm_client - INFO - __init__:57 - Initialized LLM client: http://127.0.0.1:1234/v1/chat/completions
+2025-09-12 13:40:08,675 - llm_client - INFO - __init__:58 - Model: local-model, Temperature: 0.1
+2025-09-12 13:40:08,675 - llm_client - INFO - _test_connection:98 - Testing LLM connection...
+2025-09-12 13:40:10,697 - llm_client - ERROR - _test_connection:128 - Cannot connect to LLM endpoint http://127.0.0.1:1234/v1/chat/completions: HTTPConnectionPool(host='127.0.0.1', port=1234): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000026E51BCBF80>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
