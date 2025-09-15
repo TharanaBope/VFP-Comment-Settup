@@ -11,7 +11,7 @@ CRITICAL SAFETY FEATURES:
 - Atomic file operations with rollback capability
 - Session persistence for resumable processing
 """
-
+import time
 import click
 import logging
 import sys
