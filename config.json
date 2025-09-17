@@ -4,9 +4,9 @@
     "model": "local-model",
     "temperature": 0.1,
     "max_tokens": 4000,
-    "timeout": 120,
-    "retry_attempts": 3,
-    "retry_delay": 5
+    "timeout": 300,
+    "retry_attempts": 2,
+    "retry_delay": 10
   },
   "processing": {
     "root_directory": "D:/Medical Wizard/VFP Entire Codebase/VFP Comment Settup/VFP_Files_Copy",
@@ -51,7 +51,7 @@
     "require_line_count_match": true,
     "require_manual_confirmation": false,
     "max_file_size_mb": 10,
-    "backup_before_processing": true,
+    "backup_before_processing": false,
     "validate_vfp_syntax": true,
     "halt_on_validation_failure": true
   }
