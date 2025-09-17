@@ -472,6 +472,154 @@ def show_config(config):
         click.echo(f"❌ Failed to load configuration: {e}")
         sys.exit(1)
 
+@cli.command()
+@click.option('--file', '-f', required=True, type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+              help='Single VFP file to process (.prg or .spr)')
+@click.option('--config', '-c', type=click.Path(exists=True, path_type=Path),
+              help='Configuration file path (default: config.json)')
+@click.option('--log-level', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR']), default='INFO',
+              help='Logging level')
+@click.option('--dry-run', is_flag=True,
+              help='Show what would be processed without making changes')
+def process_file(file, config, log_level, dry_run):
+    """
+    Process a single VFP file and add comments.
+
+    This command processes a single .prg or .spr file with the local LLM
+    to add comprehensive comments while preserving original code.
+    The commented file will be saved in the same directory with '_commented' suffix.
+    """
+    try:
+        # Initialize configuration
+        config_manager = ConfigManager(str(config) if config else None)
+
+        # Setup logging
+        log_file = config_manager.get('logging.log_file') if not dry_run else None
+        setup_logging(log_level, log_file)
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"Starting single file processing v{__version__}")
+        logger.info(f"Target file: {file}")
+        logger.info(f"Mode: {'DRY RUN' if dry_run else 'PROCESSING'}")
+
+        # Validate file extension
+        file_ext = file.suffix.lower()
+        valid_extensions = ['.prg', '.spr']
+        if file_ext not in valid_extensions:
+            click.echo(f"❌ Invalid file extension: {file_ext}")
+            click.echo(f"Supported extensions: {', '.join(valid_extensions)}")
+            return
+
+        # Check if file is already commented
+        if '_commented' in file.stem:
+            click.echo(f"❌ File appears to be already commented: {file.name}")
+            click.echo("Skipping to avoid processing commented files.")
+            return
+
+        # Create file info structure (similar to batch processing)
+        file_info = {
+            'full_path': str(file),
+            'relative_path': file.name,
+            'directory': str(file.parent),
+            'filename': file.name,
+            'output_path': str(file.parent / f"{file.stem}_commented{file.suffix}"),
+            'file_size': file.stat().st_size if file.exists() else 0
+        }
+
+        # Check if output file already exists
+        output_path = Path(file_info['output_path'])
+        if output_path.exists():
+            click.echo(f"⚠️  Output file already exists: {output_path.name}")
+            if not dry_run and not click.confirm("Overwrite existing commented file?"):
+                click.echo("Processing cancelled.")
+                return
+
+        # Print file information
+        click.echo(f"\n📄 SINGLE FILE PROCESSING")
+        click.echo(f"Input file:  {file}")
+        click.echo(f"Output file: {output_path}")
+        click.echo(f"File size:   {file_info['file_size']:,} bytes")
+
+        if dry_run:
+            click.echo(f"\n🔍 DRY RUN COMPLETE")
+            click.echo(f"Would process: {file.name}")
+            click.echo(f"Would create: {output_path.name}")
+            return
+
+        # Initialize processing components
+        try:
+            logger.info("Initializing LLM client...")
+            llm_client = LLMClient(config_manager)
+
+            logger.info("Initializing VFP processor...")
+            processor = VFPProcessor(config_manager)
+
+        except Exception as e:
+            click.echo(f"❌ Failed to initialize processing components: {e}")
+            logger.error(f"Initialization failed: {e}")
+            return
+
+        # Confirm processing
+        click.echo(f"\n⚠️  ABOUT TO PROCESS SINGLE FILE")
+        click.echo("This will:")
+        click.echo("• Send file contents to local LLM for comment generation")
+        click.echo(f"• Create new file: {output_path.name}")
+        click.echo("• Validate that original code is never modified")
+
+        if not click.confirm("\nProceed with processing?"):
+            click.echo("Processing cancelled.")
+            return
+
+        # Process the file
+        click.echo(f"\n🚀 Processing file: {file.name}")
+        start_time = time.time()
+
+        try:
+            # Check if file should be processed
+            if not processor.should_process_file(file_info):
+                click.echo(f"❌ File skipped based on processing criteria")
+                return
+
+            # Process file with LLM
+            commented_content = processor.process_file_with_llm(file_info, llm_client)
+            processing_time = time.time() - start_time
+
+            if commented_content:
+                # Read original content for validation
+                original_content = processor.read_vfp_file(file_info['full_path'])
+
+                if original_content:
+                    # Save commented file with validation
+                    if processor.save_commented_file(file_info, commented_content, original_content):
+                        click.echo(f"\n✅ SUCCESS!")
+                        click.echo(f"Processing time: {processing_time:.1f} seconds")
+                        click.echo(f"Original size: {len(original_content):,} characters")
+                        click.echo(f"Commented size: {len(commented_content):,} characters")
+                        click.echo(f"Added content: {len(commented_content) - len(original_content):,} characters")
+                        click.echo(f"\n📁 Commented file saved: {output_path}")
+
+                        logger.info(f"✓ Successfully processed: {file.name}")
+                    else:
+                        click.echo(f"❌ Failed to save commented file")
+                        logger.error(f"Failed to save: {file.name}")
+                else:
+                    click.echo(f"❌ Could not read original file for validation")
+                    logger.error(f"Could not read: {file.name}")
+            else:
+                click.echo(f"❌ LLM processing failed")
+                logger.error(f"LLM processing failed: {file.name}")
+
+        except Exception as e:
+            processing_time = time.time() - start_time
+            click.echo(f"❌ Error processing file: {e}")
+            logger.error(f"Error processing {file.name}: {e}")
+
+    except Exception as e:
+        click.echo(f"❌ Fatal error: {e}")
+        if 'logger' in locals():
+            logger.critical(f"Fatal error: {e}")
+        sys.exit(1)
+
 if __name__ == '__main__':
     import time  # Import needed for main processing
     cli()
