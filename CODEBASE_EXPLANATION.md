@@ -318,7 +318,58 @@ Response length: 1381 characters                     ← Got commented version
 - `--resume`: Continue interrupted session
 - `--max-files 10`: Limit processing (for testing)
 
-### 5. `python main.py show-config`
+### 5. `python main.py process-file --file "path"` (NEW!)
+**What it does:** Processes a single specific VFP file
+**Process:**
+- Validates file extension (.prg or .spr)
+- Checks if file is already commented
+- Shows input/output file information
+- Processes with LLM and validates code preservation
+- Creates commented file in same directory with `_commented` suffix
+
+**Options:**
+- `--dry-run`: Show what would be processed without making changes
+- `--config "config.json"`: Use custom configuration file
+- `--log-level INFO`: Set logging level (DEBUG, INFO, WARNING, ERROR)
+
+**Examples:**
+```bash
+# Process a single file
+python main.py process-file --file "D:\VFP_Files_Copy\Classes\stdResizer.PRG"
+
+# Dry run to preview without processing
+python main.py process-file --file "D:\VFP_Files_Copy\Classes\stdResizer.PRG" --dry-run
+
+# Process with custom config
+python main.py process-file --file "D:\VFP_Files_Copy\Forms\mainForm.prg" --config custom.json
+```
+
+**What happens when you run it:**
+```
+📄 SINGLE FILE PROCESSING
+Input file:  D:\VFP_Files_Copy\Classes\stdResizer.PRG
+Output file: D:\VFP_Files_Copy\Classes\stdResizer_commented.PRG
+File size:   15,847 bytes
+
+⚠️  ABOUT TO PROCESS SINGLE FILE
+This will:
+• Send file contents to local LLM for comment generation
+• Create new file: stdResizer_commented.PRG
+• Validate that original code is never modified
+
+Proceed with processing? [y/N]: y
+
+🚀 Processing file: stdResizer.PRG
+✅ SUCCESS!
+Processing time: 45.2 seconds
+Original size: 15,847 characters
+Commented size: 23,156 characters
+Added content: 7,309 characters
+
+📁 Commented file saved: D:\VFP_Files_Copy\Classes\stdResizer_commented.PRG
+```
+
+### 6. `python main.py show-config`
 **What it does:** Shows current configuration settings
 
 ---
@@ -382,9 +433,49 @@ The `config.json` file controls everything:
 
 ---
 
-## 🔄 Example Workflow
+## 🔄 Example Workflows
 
-### Scenario: You want to comment your entire VFP codebase
+### Scenario 1: Single File Processing (NEW!)
+
+**Step 1: Test with One File**
+```bash
+# First, do a dry run to see what would happen
+python main.py process-file --file "D:\VFP_Files_Copy\Classes\stdResizer.PRG" --dry-run
+```
+
+**Step 2: Process the File**
+```bash
+# Actually process the file
+python main.py process-file --file "D:\VFP_Files_Copy\Classes\stdResizer.PRG"
+```
+
+**Step 3: Check the Results**
+```bash
+# The tool creates: stdResizer_commented.PRG in the same directory
+# Original file remains unchanged
+```
+
+**Use Cases for Single File Processing:**
+- Testing the tool on specific files
+- Processing high-priority files first
+- Working on files one by one for quality control
+- Processing specific problem files that failed in batch mode
+
+### Scenario 2: Folder-by-Folder Processing
+
+**Step 1: Process One Folder at a Time**
+```bash
+# Process just the Classes folder
+python main.py process --root "D:\VFP_Files_Copy\Classes"
+
+# Process just the Forms folder
+python main.py process --root "D:\VFP_Files_Copy\Forms"
+
+# Process Custom Prgs folder
+python main.py process --root "D:\VFP_Files_Copy\Custom Prgs"
+```
+
+### Scenario 3: Full Batch Processing
 
 **Step 1: Analyze First**
 ```bash
@@ -415,6 +506,34 @@ Processes all 247 files with progress tracking
 python main.py process --root "VFP_Files_Copy" --resume
 ```
 Continues from where it left off
+
+### Scenario 4: Mixed Processing Strategy (Recommended)
+
+**Step 1: Start with Single Files for Testing**
+```bash
+# Test the process on a few specific files first
+python main.py process-file --file "D:\VFP_Files_Copy\Classes\stdResizer.PRG"
+python main.py process-file --file "D:\VFP_Files_Copy\Forms\mainForm.prg"
+```
+
+**Step 2: Process Small Folders**
+```bash
+# Process smaller folders completely
+python main.py process --root "D:\VFP_Files_Copy\Classes"
+```
+
+**Step 3: Process Large Folders in Batches**
+```bash
+# For larger folders, process in smaller batches
+python main.py process --root "D:\VFP_Files_Copy\Large_Folder" --max-files 10
+python main.py process --root "D:\VFP_Files_Copy\Large_Folder" --resume
+```
+
+**Step 4: Final Full Processing**
+```bash
+# Process any remaining files
+python main.py process --root "D:\VFP_Files_Copy" --resume
+```
 
 ---
 
@@ -449,11 +568,39 @@ Successfully processed: 235 files
 
 ## 🚀 Quick Start Guide
 
+### Option 1: Single File Processing (Recommended for First Use)
+1. **Ensure LM Studio is running** with a model loaded
+2. **Activate your virtual environment**: `venv\Scripts\activate`
+3. **Test the connection**: `python main.py test-llm`
+4. **Process one file**: `python main.py process-file --file "path\to\your\file.prg"`
+
+### Option 2: Batch Processing
 1. **Ensure LM Studio is running** with a model loaded
 2. **Activate your virtual environment**: `venv\Scripts\activate`
 3. **Test the connection**: `python main.py test-llm`
 4. **Analyze your files**: `python main.py analyze --root "your_vfp_directory"`
 5. **Start processing**: `python main.py process --root "your_vfp_directory"`
+
+### Quick Commands Summary
+```bash
+# Test everything works
+python main.py test-llm
+
+# Process single file (great for testing)
+python main.py process-file --file "D:\VFP_Files_Copy\Classes\stdResizer.PRG"
+
+# See all files that can be processed
+python main.py analyze --root "D:\VFP_Files_Copy"
+
+# Process entire directory
+python main.py process --root "D:\VFP_Files_Copy"
+
+# Process specific folder
+python main.py process --root "D:\VFP_Files_Copy\Classes"
+
+# Process with limits (for testing)
+python main.py process --root "D:\VFP_Files_Copy" --max-files 5
+```
 
 ---
 
