@@ -77,23 +77,39 @@ class VFPProcessor:
     
     def _validate_safety_configuration(self) -> None:
         """
-        Validate that all critical safety settings are properly configured.
-        Raises exception if critical safety features are disabled.
+        Validate that essential safety settings are properly configured.
+        Warns about disabled safety features but allows processing to continue.
         """
-        critical_safety_settings = [
+        # Essential safety settings that should remain enabled
+        essential_safety_settings = [
             ('require_code_hash_match', 'Code hash validation'),
-            ('require_line_count_match', 'Line count validation'),
-            ('backup_before_processing', 'Backup creation'),
             ('halt_on_validation_failure', 'Halt on validation failure')
         ]
-        
-        for setting, description in critical_safety_settings:
+
+        # Optional safety settings that can be disabled
+        optional_safety_settings = [
+            ('require_line_count_match', 'Line count validation'),
+            ('backup_before_processing', 'Backup creation')
+        ]
+
+        # Check essential settings
+        for setting, description in essential_safety_settings:
             if not self.safety_config.get(setting, True):
-                error_msg = f"CRITICAL SAFETY FEATURE DISABLED: {description}"
+                error_msg = f"ESSENTIAL SAFETY FEATURE DISABLED: {description}"
                 self.logger.critical(error_msg)
                 raise ValueError(error_msg)
-        
-        self.logger.info("✓ All critical safety settings validated successfully")
+
+        # Warn about optional settings
+        for setting, description in optional_safety_settings:
+            if not self.safety_config.get(setting, True):
+                warning_msg = f"Optional safety feature disabled: {description}"
+                self.logger.warning(warning_msg)
+
+        # Check if backup is disabled and warn
+        if not self.safety_config.get('backup_before_processing', True):
+            self.logger.warning("⚠️ Backup creation is DISABLED - original files will not be backed up")
+
+        self.logger.info("✓ Safety configuration validated")
     
     def read_vfp_file(self, file_path: str) -> Optional[str]:
         """
