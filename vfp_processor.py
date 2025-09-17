@@ -82,14 +82,14 @@ class VFPProcessor:
         """
         # Essential safety settings that should remain enabled
         essential_safety_settings = [
-            ('require_code_hash_match', 'Code hash validation'),
-            ('halt_on_validation_failure', 'Halt on validation failure')
+            ('require_code_hash_match', 'Code hash validation')
         ]
 
         # Optional safety settings that can be disabled
         optional_safety_settings = [
             ('require_line_count_match', 'Line count validation'),
-            ('backup_before_processing', 'Backup creation')
+            ('backup_before_processing', 'Backup creation'),
+            ('halt_on_validation_failure', 'Halt on validation failure')
         ]
 
         # Check essential settings
