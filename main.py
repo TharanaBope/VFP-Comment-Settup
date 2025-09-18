@@ -190,7 +190,7 @@ def process(root, config, dry_run, resume, session_id, log_level, max_files):
             return
         
         # Initialize progress tracking
-        all_files = tracker.processing_results + [{'full_path': f['full_path']} for f in vfp_files]
+        all_files = tracker.processing_results + vfp_files
         tracker.initialize_processing(all_files, str(root))
         
         # Confirm processing
