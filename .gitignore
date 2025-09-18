@@ -5,7 +5,7 @@ VFP_Files_Copy/
 # Ignore Python virtual environment
 venv/
 # Ignore JSON report files
-scan_report.json/
+scan_report.json
 
 # Ignore log files
 *.log

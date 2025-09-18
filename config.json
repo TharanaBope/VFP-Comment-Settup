@@ -1,6 +1,6 @@
 {
   "llm": {
-    "endpoint": "https://how-ran-receivers-necessity.trycloudflare.com/v1/chat/completions",
+    "endpoint": "https://feeling-venue-nottingham-wireless.trycloudflare.com/v1/chat/completions",
     "model": "local-model",
     "temperature": 0.1,
     "max_tokens": 4000,
