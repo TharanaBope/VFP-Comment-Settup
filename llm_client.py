@@ -64,28 +64,31 @@ class LLMClient:
         """Setup comprehensive logging for LLM interactions."""
         logger = logging.getLogger('llm_client')
         logger.setLevel(logging.INFO)
-        
-        if not logger.handlers:
-            # Console handler
-            console_handler = logging.StreamHandler()
-            console_formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            console_handler.setFormatter(console_formatter)
-            logger.addHandler(console_handler)
-            
-            # File handler if enabled
-            if self.config.get('logging.enable_file_logging', True):
-                log_file = self.config.get('logging.log_file', 'vfp_commenting.log')
-                try:
-                    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-                    file_formatter = logging.Formatter(
-                        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-                    )
-                    file_handler.setFormatter(file_formatter)
-                    logger.addHandler(file_handler)
-                except Exception as e:
-                    logger.warning(f"Could not setup file logging: {e}")
+
+        # Prevent duplicate handlers and propagation to avoid duplicate logs
+        logger.handlers.clear()
+        logger.propagate = False
+
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
+
+        # File handler if enabled
+        if self.config.get('logging.enable_file_logging', True):
+            log_file = self.config.get('logging.log_file', 'vfp_commenting.log')
+            try:
+                file_handler = logging.FileHandler(log_file, encoding='utf-8')
+                file_formatter = logging.Formatter(
+                    '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+                )
+                file_handler.setFormatter(file_formatter)
+                logger.addHandler(file_handler)
+            except Exception as e:
+                logger.warning(f"Could not setup file logging: {e}")
         
         return logger
     

@@ -50,29 +50,32 @@ class VFPProcessor:
         """Setup comprehensive logging for VFP processing."""
         logger = logging.getLogger('vfp_processor')
         logger.setLevel(logging.INFO)
-        
-        if not logger.handlers:
-            # Console handler
-            console_handler = logging.StreamHandler()
-            console_formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            console_handler.setFormatter(console_formatter)
-            logger.addHandler(console_handler)
-            
-            # File handler if enabled
-            if self.config.get('logging.enable_file_logging', True):
-                log_file = self.config.get('logging.log_file', 'vfp_processing.log')
-                try:
-                    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-                    file_formatter = logging.Formatter(
-                        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-                    )
-                    file_handler.setFormatter(file_formatter)
-                    logger.addHandler(file_handler)
-                except Exception as e:
-                    logger.warning(f"Could not setup file logging: {e}")
-        
+
+        # Prevent duplicate handlers and propagation to avoid duplicate logs
+        logger.handlers.clear()
+        logger.propagate = False
+
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
+
+        # File handler if enabled
+        if self.config.get('logging.enable_file_logging', True):
+            log_file = self.config.get('logging.log_file', 'vfp_processing.log')
+            try:
+                file_handler = logging.FileHandler(log_file, encoding='utf-8')
+                file_formatter = logging.Formatter(
+                    '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+                )
+                file_handler.setFormatter(file_formatter)
+                logger.addHandler(file_handler)
+            except Exception as e:
+                logger.warning(f"Could not setup file logging: {e}")
+
         return logger
     
     def _validate_safety_configuration(self) -> None:
@@ -99,15 +102,14 @@ class VFPProcessor:
                 self.logger.critical(error_msg)
                 raise ValueError(error_msg)
 
-        # Warn about optional settings
+        # Warn about optional settings (only once during initialization)
+        disabled_features = []
         for setting, description in optional_safety_settings:
             if not self.safety_config.get(setting, True):
-                warning_msg = f"Optional safety feature disabled: {description}"
-                self.logger.warning(warning_msg)
+                disabled_features.append(description)
 
-        # Check if backup is disabled and warn
-        if not self.safety_config.get('backup_before_processing', True):
-            self.logger.warning("⚠️ Backup creation is DISABLED - original files will not be backed up")
+        if disabled_features:
+            self.logger.warning(f"Optional safety features disabled: {', '.join(disabled_features)}")
 
         self.logger.info("✓ Safety configuration validated")
     
