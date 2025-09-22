@@ -10,3 +10,5 @@ scan_report.json
 # Ignore log files
 *.log
 __pycache__/
+
+Macterminal/
