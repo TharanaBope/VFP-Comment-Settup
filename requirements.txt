@@ -7,6 +7,11 @@ requests>=2.31.0          # For HTTP requests to LLM API
 click>=8.1.0              # Command-line interface framework
 pathlib>=1.0.1            # Modern path handling (built-in Python 3.4+)
 
+# Structured output dependencies (NEW - for Instructor-based approach)
+instructor>=1.11.0        # Structured outputs for LLMs
+openai>=1.109.0           # OpenAI client (works with LM Studio)
+pydantic>=2.12.0          # Data validation with type hints
+
 # Progress and UI
 tqdm>=4.65.0              # Progress bars with nested folder support
 colorama>=0.4.6           # Colored terminal output (cross-platform)
