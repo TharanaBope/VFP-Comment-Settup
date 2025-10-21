@@ -1,10 +1,13 @@
 {
   "llm": {
-    "endpoint": "https://flooring-honolulu-watershed-latex.trycloudflare.com/v1/chat/completions",
-    "model": "local-model",
-    "temperature": 0.1,
-    "max_tokens": 4000,
-    "timeout": 300,
+    "endpoint": "http://100.65.197.2:1234/v1",
+    "model": "openai/gpt-oss-20b",
+    "temperature": 0.05,
+    "max_tokens": 8000,
+    "timeout": 1200,
+    "timeout_small": 180,
+    "timeout_medium": 600,
+    "timeout_large": 1200,
     "retry_attempts": 2,
     "retry_delay": 10
   },
@@ -19,14 +22,24 @@
     "parallel_workers": 1,
     "validate_before_save": true,
     "create_backups": true,
-    "strict_validation": true
+    "strict_validation": true,
+    "file_size_small": 5000,
+    "file_size_medium": 15000,
+    "chunk_size_target": 600,
+    "max_chunk_lines": 30,
+    "chunk_overlap_lines": 3,
+    "enable_chunking": true,
+    "enable_context_aware_chunking": true,
+    "chunk_validation_strict": true,
+    "chunk_context_lines": 3
   },
   "prompts": {
     "system_prompt": "You are an expert Visual FoxPro (VFP) programmer tasked with adding comprehensive comments to legacy VFP code.\n\n🚨 CRITICAL REQUIREMENT - READ CAREFULLY 🚨\nYOU MUST NEVER MODIFY THE ORIGINAL CODE IN ANY WAY!\n- DO NOT change variable names, function calls, logic conditions, string values, or numeric values\n- DO NOT add, remove, or modify ANY code lines\n- ONLY ADD COMMENT LINES (starting with *)\n\nYour ONLY task is to add explanatory comments while keeping the original code 100% intact.\n\nComment Guidelines:\n1. Add a structured header with dashes, File, Location, Purpose, and Dependencies sections\n2. Add single-line * comments ABOVE code blocks (no inline && comments)\n3. Keep comments concise and focused on what the code does\n4. Document database operations and business logic briefly\n5. Use clear, simple explanations without excessive detail\n\nHeader Format:\n* --------------------------------------------------------------------\n* File: [filename]\n* Location: [path]\n*\n* Purpose:\n*   [Brief description of what the program does]\n*   [Additional context if needed]\n*\n* Dependencies:\n*   - [List any tables, global variables, or external requirements]\n* --------------------------------------------------------------------\n\nComment Style:\n- Header: Structured format with sections as shown above\n- Code comments: Single-line * comments above blocks only\n- NO inline && comments\n- Keep explanations brief and practical\n\n🚨 VALIDATION REMINDER 🚨\nYour response will be validated to ensure NO original code was changed.\nReturn the EXACT original code with ONLY * comment lines added.",
     "user_prompt_template": "🚨 CRITICAL: PRESERVE EXACT FORMATTING - DO NOT MODIFY ANY ORIGINAL CODE 🚨\n\nAdd comments to this VFP file while preserving EXACT formatting:\n\nFile: {filename}\nLocation: {relative_path}\n\nRULES:\n1. Keep ALL original code lines EXACTLY as written (same spacing, same case, same formatting)\n2. Keep ALL blank lines exactly where they are\n3. DO NOT add or remove any blank lines\n4. DO NOT change any indentation or spacing\n5. ONLY add comment lines starting with *\n6. Add detailed explanatory comments above code blocks\n\nRequired header format (use this EXACT structure):\n* --------------------------------------------------------------------\n* File: {filename}\n* Location: {relative_path}\n*\n* Purpose:\n*   [Detailed multi-line explanation of what this routine does]\n*   [Include business context and usage scenarios]\n*   [Explain return values and side effects]\n*\n* Dependencies:\n*   - [List tables, cursors, and database requirements]\n*   - [List global variables and parameters]\n*   - [List any external files or resources]\n* --------------------------------------------------------------------\n\nThen add detailed * comments above each logical code block explaining:\n- What the code section accomplishes\n- Why this logic is needed  \n- What variables/data it processes\n- Any business rules being implemented\n\nEXAMPLE of expected output style:\n```\n* --------------------------------------------------------------------\n* File: example.prg\n* Location: modules/example.prg\n*\n* Purpose:\n*   This routine validates user credentials and processes login attempts.\n*   It checks existing session status first to avoid duplicate logins.\n*   Returns success status and updates global user tracking variables.\n*\n* Dependencies:\n*   - Table or alias: USERS (must be open before calling)\n*   - Cursor: curSession (created temporarily in this routine)\n*   - Variable: gnUserID (global session identifier)\n* --------------------------------------------------------------------\n\n* Check if user is already logged in to avoid duplicate processing\n* If gnUserID is already set, exit immediately without further validation\nIF gnUserID > 0\n\tRETURN \"Already logged in\"\nENDIF\n\n* Query the USERS table to validate credentials and create temporary cursor\n* This cursor will contain matching user records for verification\nSELECT * FROM USERS WHERE userid = lnID INTO CURSOR curSession\n```\n\n🚨 VALIDATION: Your response will be parsed to extract original code and compared byte-for-byte. Any changes will cause rejection.\n\nOriginal code to preserve exactly:\n{code_content}\n\nReturn the structured header + exact original code with detailed explanatory comments:",
     "comment_style": "comprehensive",
     "code_preservation": "strict",
-    "max_retries_for_validation": 3
+    "max_retries_for_validation": 3,
+    "chunked_prompt_template": "🚨 PRESERVE EXACT CODE - ONLY ADD COMMENTS 🚨\n\nFile: {filename} (Chunk {chunk_num}/{total_chunks})\nLocation: {relative_path}\n\nAdd * comments above code blocks. Keep ALL original code exactly as written.\n\nHeader format:\n* --------------------------------------------------------------------\n* File: {filename} (Chunk {chunk_num}/{total_chunks})\n* Purpose: [Brief explanation of this section]\n* --------------------------------------------------------------------\n\nOriginal code to preserve:\n{code_content}\n\nReturn header + exact original code with * comments:"
   },
   "logging": {
     "log_level": "INFO",

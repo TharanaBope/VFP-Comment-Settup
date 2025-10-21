@@ -21,6 +21,7 @@ from openai import OpenAI
 from config import ConfigManager
 from structured_output import (
     CommentedCode,
+    ChunkComments,
     FileHeaderComment,
     CommentBlock,
     FileAnalysis
@@ -306,6 +307,63 @@ Return JSON with: original_code_preserved, file_header, inline_comments"""
 
         return None
 
+    def _create_code_sample_for_analysis(self, vfp_code: str, max_lines: int = 500) -> tuple[str, bool]:
+        """
+        Create a representative sample of VFP code for structure analysis.
+
+        For large files, this prevents LLM crashes by sending a representative sample
+        instead of the entire file during Phase 1 context extraction.
+
+        Args:
+            vfp_code: Full VFP code
+            max_lines: Threshold for sampling (default 500 lines)
+
+        Returns:
+            Tuple of (sampled_code, was_sampled)
+        """
+        lines = vfp_code.splitlines()
+        total_lines = len(lines)
+
+        # If file is small enough, send entire file
+        if total_lines <= max_lines:
+            return vfp_code, False
+
+        self.logger.info(f"File has {total_lines} lines - creating representative sample...")
+
+        # Extract procedure/function signatures for complete structural view
+        import re
+        proc_pattern = re.compile(r'^\s*(PROCEDURE|FUNCTION)\s+(\w+)', re.IGNORECASE)
+        procedure_lines = []
+
+        for i, line in enumerate(lines, 1):
+            match = proc_pattern.match(line)
+            if match:
+                procedure_lines.append(f"* Line {i}: {line.strip()}")
+
+        # Build representative sample
+        sample_parts = [
+            "* ===== CODE SAMPLE FOR ANALYSIS (Not complete file) =====",
+            f"* Total Lines: {total_lines}",
+            f"* Sample includes: First 300 lines + Last 100 lines + All {len(procedure_lines)} PROCEDURE/FUNCTION signatures",
+            "* ==========================================================",
+            "",
+            "* ----- FIRST 300 LINES -----",
+            *lines[:300],
+            "",
+            "* ----- ALL PROCEDURE/FUNCTION SIGNATURES -----",
+            *procedure_lines,
+            "",
+            "* ----- LAST 100 LINES -----",
+            *lines[-100:],
+            "",
+            "* ===== END OF SAMPLE ====="
+        ]
+
+        sampled_code = '\n'.join(sample_parts)
+        self.logger.info(f"Sample created: {len(sampled_code)} chars (original: {len(vfp_code)} chars)")
+
+        return sampled_code, True
+
     def analyze_vfp_file(
         self,
         vfp_code: str,
@@ -325,14 +383,22 @@ Return JSON with: original_code_preserved, file_header, inline_comments"""
         """
         self.logger.info(f"Analyzing structure of: {filename}")
 
+        # Create code sample for analysis (prevents LLM crashes on large files)
+        code_for_analysis, was_sampled = self._create_code_sample_for_analysis(vfp_code)
+
+        if was_sampled:
+            self.logger.info("Using sampled code for analysis to prevent model overload")
+
         system_prompt = """You are an expert VFP code structure analyzer.
 Extract high-level information from VFP code to provide context for commenting.
 DO NOT generate comments or modify code - only extract metadata."""
 
+        sampling_note = "\n⚠️ Note: This is a SAMPLE of a large file. Focus on identifying structure and patterns." if was_sampled else ""
+
         user_prompt = f"""Analyze the structure of this VFP file.
 
 File: {filename}
-Lines: {len(vfp_code.splitlines())}
+Lines: {len(vfp_code.splitlines())}{sampling_note}
 
 Return a FileAnalysis object with these fields:
 1. filename: "{filename}"
@@ -346,7 +412,7 @@ Return a FileAnalysis object with these fields:
 
 VFP Code:
 ```vfp
-{vfp_code}
+{code_for_analysis}
 ```
 
 Return structured FileAnalysis object with ALL fields filled."""
@@ -388,10 +454,13 @@ Return structured FileAnalysis object with ALL fields filled."""
         file_context: FileAnalysis,
         filename: str,
         relative_path: str
-    ) -> Optional[CommentedCode]:
+    ) -> Optional[ChunkComments]:
         """
         Generate comments for a specific code chunk with file context awareness.
         (Phase 2 of two-phase approach)
+
+        Uses simplified ChunkComments model that only returns comments, not code.
+        This ensures 100% code preservation - the LLM never touches the code.
 
         Args:
             vfp_code: The code chunk to comment
@@ -402,30 +471,27 @@ Return structured FileAnalysis object with ALL fields filled."""
             relative_path: Relative path from root
 
         Returns:
-            CommentedCode instance if successful, None if failed
+            ChunkComments instance if successful, None if failed
         """
         self.logger.info(f"Generating comments for chunk: {chunk_name} ({chunk_type})")
 
-        # Sanitize code to avoid JSON control character issues
-        sanitized_code, replacements = self._sanitize_code_for_json(vfp_code)
-        if replacements['tabs_replaced'] > 0:
-            self.logger.info(f"Replaced {replacements['tabs_replaced']} tabs with spaces for JSON safety")
+        # Count lines for context
+        line_count = len(vfp_code.split('\n'))
+        self.logger.info(f"Chunk has {line_count} lines")
 
         system_prompt = """You are an expert Visual FoxPro (VFP) code documentation specialist.
 
-🚨 CRITICAL REQUIREMENTS 🚨
-1. You MUST return the EXACT original code in the 'original_code_preserved' field
-2. DO NOT modify, refactor, or change ANY code
-3. DO NOT add, remove, or alter ANY code lines
-4. ONLY generate comment text in the structured format
+🚨 CRITICAL REQUIREMENT 🚨
+You will analyze VFP code and return ONLY comments - NOT the code itself.
+DO NOT copy or return any code in your response.
+ONLY return structured comment information.
 
-Your task is to add comments to a specific section of VFP code.
-You have been provided with the overall file context to help you understand this section."""
+Your task is to generate helpful comments that explain the code logic."""
 
         # Extract dependencies for display
         dep_str = ', '.join(file_context.dependencies[:5]) if file_context.dependencies else 'None'
 
-        user_prompt = f"""Add comments to this VFP code section.
+        user_prompt = f"""Generate comments for this VFP code section.
 
 **FILE CONTEXT (for your understanding):**
 File: {filename}
@@ -433,47 +499,44 @@ Location: {relative_path}
 File Overview: {file_context.file_overview}
 Dependencies: {dep_str}
 
-**CODE SECTION TO COMMENT:**
+**CODE SECTION TO ANALYZE:**
 Type: {chunk_type}
 Name: {chunk_name}
+Lines: {line_count}
 
-🚨 CRITICAL INSTRUCTION 🚨
-Return JSON with THREE fields:
+🚨 IMPORTANT 🚨
+Return JSON with TWO fields (DO NOT return code):
 
-1. "original_code_preserved":
-   - COPY the code below EXACTLY as written
-   - DO NOT modify ANY code
-   - Preserve ALL spacing and blank lines
-
-2. "file_header":
+1. "file_header":
    - filename: "{filename}"
    - location: "{relative_path}"
-   - purpose: [Brief description of this specific section]
-   - dependencies: [Tables/variables used in THIS section]
-   - key_functions: [Empty list for code sections]
+   - purpose: [Brief description of what THIS section does]
+   - dependencies: [Tables/variables/files used in THIS section only]
+   - key_functions: [Empty list]
 
-3. "inline_comments":
-   - Comments explaining THIS section's logic
-   - Use * for full-line comments
-   - Insert at appropriate line numbers
+2. "inline_comments":
+   - Array of comment blocks
+   - Each comment has:
+     * insert_before_line: Line number (1-indexed)
+     * comment_lines: Array of VFP comment strings (start with *)
+     * context: Brief note about what this comment explains
+   - Explain logic, database operations, business rules
+   - Use clear, concise language
 
-VFP Code Section (copy EXACTLY to original_code_preserved):
+**VFP Code Section to analyze:**
 ```vfp
-{sanitized_code}
+{vfp_code}
 ```
 
-⚠️ NOTE: Tabs have been converted to spaces for JSON compatibility.
-
-Return JSON with: original_code_preserved, file_header, inline_comments"""
+Return JSON with ONLY: file_header, inline_comments
+DO NOT return the code itself."""
 
         result = self.generate_structured(
             prompt=user_prompt,
-            response_model=CommentedCode,
+            response_model=ChunkComments,
             system_prompt=system_prompt
         )
 
-        # Note: We validate against sanitized code since that's what the LLM received
-        # The validation will compare semantically (ignoring whitespace differences)
         return result
 
     def get_stats(self) -> Dict[str, Any]:

@@ -106,6 +106,74 @@ class FileHeaderComment(BaseModel):
         return "\n".join(lines)
 
 
+class ChunkComments(BaseModel):
+    """
+    Simplified model for chunk commenting - COMMENTS ONLY (no code duplication).
+
+    This model asks the LLM to return ONLY comments, not the original code.
+    This is safer because:
+    1. LLM never touches the code
+    2. Smaller output size (faster, less token usage)
+    3. We manually insert comments into original code (100% preservation)
+    """
+    file_header: FileHeaderComment = Field(
+        ...,
+        description="Structured file header comment for this chunk"
+    )
+    inline_comments: List[CommentBlock] = Field(
+        default_factory=list,
+        description="List of inline comments to insert at specific positions"
+    )
+
+    def insert_comments_into_code(self, original_code: str, include_header: bool = False) -> str:
+        """
+        Insert comments into original code WITHOUT modifying the code.
+
+        Args:
+            original_code: The original VFP code (100% preserved)
+            include_header: Whether to include file header comment
+
+        Returns:
+            Original code with comments inserted at specified positions
+        """
+        result_lines = []
+
+        # Add file header if requested
+        if include_header:
+            result_lines.append(self.file_header.to_vfp_comment())
+            result_lines.append("")
+
+        # Split original code into lines
+        code_lines = original_code.split('\n')
+
+        # Sort inline comments by line number
+        sorted_comments = sorted(self.inline_comments, key=lambda c: c.insert_before_line)
+
+        # Track which comment we're on
+        comment_index = 0
+
+        for line_num, code_line in enumerate(code_lines, start=1):
+            # Insert any comments that belong before this line
+            while (comment_index < len(sorted_comments) and
+                   sorted_comments[comment_index].insert_before_line == line_num):
+
+                comment_block = sorted_comments[comment_index]
+
+                # Add blank line before comment for readability (unless it's the first line)
+                if line_num > 1 and result_lines and result_lines[-1].strip():
+                    result_lines.append("")
+
+                # Add comment lines
+                result_lines.extend(comment_block.comment_lines)
+
+                comment_index += 1
+
+            # Add the original code line (UNMODIFIED)
+            result_lines.append(code_line)
+
+        return '\n'.join(result_lines)
+
+
 class CommentedCode(BaseModel):
     """
     Primary output model for LLM - ensures code preservation.

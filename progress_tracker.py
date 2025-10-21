@@ -31,6 +31,8 @@ class FileProcessingResult:
     original_size: int = 0
     commented_size: int = 0
     validation_passed: bool = False
+    processing_method: str = "two_phase"  # Track processing method used
+    comments_added: int = 0  # Track number of comment lines added
 
 @dataclass
 class FolderStats:

@@ -39,7 +39,7 @@ def main():
     print()
 
     # Test file path
-    test_file = Path("VFP_Files_Copy/Prgs/rundview_sql.prg")
+    test_file = Path("VFP_Files_Copy\Prgs\dayview_sql-18022025.prg")
 
     if not test_file.exists():
         print(f"[ERROR] Test file not found: {test_file}")

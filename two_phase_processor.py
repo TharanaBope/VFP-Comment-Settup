@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 from instructor_client import InstructorLLMClient
 from vfp_chunker import VFPChunker, CodeChunk
-from structured_output import FileAnalysis, CommentedCode, FileHeaderComment, CommentBlock
+from structured_output import FileAnalysis, ChunkComments, FileHeaderComment, CommentBlock
 
 
 @dataclass
@@ -160,6 +160,9 @@ class TwoPhaseProcessor:
         """
         Phase 2: Comment a single code chunk with context awareness.
 
+        Uses simplified ChunkComments model - LLM returns ONLY comments,
+        we manually insert them into the original code (100% preservation).
+
         Args:
             chunk: The code chunk to comment
             context: File-level context from Phase 1
@@ -170,8 +173,8 @@ class TwoPhaseProcessor:
             Commented code string or None on failure
         """
         try:
-            # Generate comments for this chunk
-            result = self.client.generate_comments_for_chunk(
+            # Generate comments for this chunk (LLM returns comments only, not code)
+            comments = self.client.generate_comments_for_chunk(
                 vfp_code=chunk.content,
                 chunk_name=chunk.name,
                 chunk_type=chunk.chunk_type,
@@ -180,20 +183,19 @@ class TwoPhaseProcessor:
                 relative_path=relative_path
             )
 
-            if not result:
+            if not comments:
                 self.logger.error(f"Failed to generate comments for chunk: {chunk.name}")
                 return None
 
-            # Validate code preservation against sanitized version
-            # (tabs converted to spaces for JSON compatibility)
-            sanitized_chunk = chunk.content.replace('\t', '    ')
-            if not result.validate_code_preservation(sanitized_chunk):
-                self.logger.error(f"Code preservation failed for chunk: {chunk.name}")
-                return None
+            # Manually insert comments into ORIGINAL code (NO code modification)
+            # include_header=False because master header is added in _assemble_file
+            commented_code = comments.insert_comments_into_code(
+                original_code=chunk.content,
+                include_header=False
+            )
 
-            # Assemble the commented chunk WITHOUT file header
-            # (master header is added in _assemble_file to avoid duplicates)
-            return result.assemble_inline_comments_only()
+            self.logger.info(f"[OK] Comments inserted into chunk: {chunk.name} (code preserved 100%)")
+            return commented_code
 
         except Exception as e:
             self.logger.error(f"Chunk commenting failed: {e}")
