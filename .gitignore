@@ -12,3 +12,8 @@ scan_report.json
 __pycache__/
 
 Macterminal/
+
+.claude/
+
+# Terminal Paste Image folder
+.cp-images/
