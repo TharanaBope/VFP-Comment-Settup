@@ -307,16 +307,21 @@ Return JSON with: original_code_preserved, file_header, inline_comments"""
 
         return None
 
-    def _create_code_sample_for_analysis(self, vfp_code: str, max_lines: int = 500) -> tuple[str, bool]:
+    def _create_code_sample_for_analysis(self, vfp_code: str, max_lines: int = 1000) -> tuple[str, bool]:
         """
         Create a representative sample of VFP code for structure analysis.
 
         For large files, this prevents LLM crashes by sending a representative sample
         instead of the entire file during Phase 1 context extraction.
 
+        OPTIMIZED FOR 24GB VRAM: Increased thresholds for better context capture:
+        - max_lines: 1000 (from 500)
+        - first_lines: 500 (from 300)
+        - last_lines: 200 (from 100)
+
         Args:
             vfp_code: Full VFP code
-            max_lines: Threshold for sampling (default 500 lines)
+            max_lines: Threshold for sampling (default 1000 lines for 24GB VRAM)
 
         Returns:
             Tuple of (sampled_code, was_sampled)
@@ -340,21 +345,25 @@ Return JSON with: original_code_preserved, file_header, inline_comments"""
             if match:
                 procedure_lines.append(f"* Line {i}: {line.strip()}")
 
-        # Build representative sample
+        # Build representative sample with increased sampling for better context
+        # Hardware upgrade (24GB VRAM) allows larger samples
+        first_lines = 500  # Increased from 300
+        last_lines = 200   # Increased from 100
+
         sample_parts = [
             "* ===== CODE SAMPLE FOR ANALYSIS (Not complete file) =====",
             f"* Total Lines: {total_lines}",
-            f"* Sample includes: First 300 lines + Last 100 lines + All {len(procedure_lines)} PROCEDURE/FUNCTION signatures",
+            f"* Sample includes: First {first_lines} lines + Last {last_lines} lines + All {len(procedure_lines)} PROCEDURE/FUNCTION signatures",
             "* ==========================================================",
             "",
-            "* ----- FIRST 300 LINES -----",
-            *lines[:300],
+            f"* ----- FIRST {first_lines} LINES -----",
+            *lines[:first_lines],
             "",
             "* ----- ALL PROCEDURE/FUNCTION SIGNATURES -----",
             *procedure_lines,
             "",
-            "* ----- LAST 100 LINES -----",
-            *lines[-100:],
+            f"* ----- LAST {last_lines} LINES -----",
+            *lines[-last_lines:],
             "",
             "* ===== END OF SAMPLE ====="
         ]
@@ -504,31 +513,55 @@ Type: {chunk_type}
 Name: {chunk_name}
 Lines: {line_count}
 
-🚨 IMPORTANT 🚨
-Return JSON with TWO fields (DO NOT return code):
+🚨 CRITICAL JSON FORMAT REQUIREMENTS 🚨
+You MUST return valid JSON. DO NOT use asterisks or any markdown formatting in JSON keys.
 
-1. "file_header":
-   - filename: "{filename}"
-   - location: "{relative_path}"
-   - purpose: [Brief description of what THIS section does]
-   - dependencies: [Tables/variables/files used in THIS section only]
-   - key_functions: [Empty list]
+CORRECT JSON format example:
+{{
+  "file_header": {{
+    "filename": "example.prg",
+    "location": "path/example.prg",
+    "purpose": ["Description here"],
+    "dependencies": ["Table1", "Table2"],
+    "key_functions": []
+  }},
+  "inline_comments": [
+    {{
+      "insert_before_line": 5,
+      "comment_lines": ["* This is a VFP comment"],
+      "context": "Brief description"
+    }}
+  ]
+}}
 
-2. "inline_comments":
-   - Array of comment blocks
-   - Each comment has:
-     * insert_before_line: Line number (1-indexed)
-     * comment_lines: Array of VFP comment strings (start with *)
-     * context: Brief note about what this comment explains
-   - Explain logic, database operations, business rules
-   - Use clear, concise language
+⚠️ JSON KEY RULES ⚠️
+- ALL keys must be in double quotes: "insert_before_line", "comment_lines", "context"
+- NEVER use asterisks around keys: *comment_lines* is WRONG
+- NEVER use markdown formatting in keys
+- Keys are plain strings: "key_name" not *key_name* or _key_name_
+
+Return JSON with TWO fields:
+
+1. "file_header" (object):
+   - "filename": "{filename}"
+   - "location": "{relative_path}"
+   - "purpose": [List of strings describing what THIS section does]
+   - "dependencies": [List of tables/cursors/files used in THIS section]
+   - "key_functions": []
+
+2. "inline_comments" (array of objects):
+   - Each object MUST have these THREE keys (in double quotes):
+     - "insert_before_line" (number): Line number where comment goes
+     - "comment_lines" (array of strings): VFP comments starting with *
+     - "context" (string): Brief note about what this explains
 
 **VFP Code Section to analyze:**
 ```vfp
 {vfp_code}
 ```
 
-Return JSON with ONLY: file_header, inline_comments
+Return ONLY valid JSON with "file_header" and "inline_comments".
+DO NOT use asterisks in JSON key names.
 DO NOT return the code itself."""
 
         result = self.generate_structured(

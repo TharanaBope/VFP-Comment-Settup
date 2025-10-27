@@ -39,7 +39,7 @@ def main():
     print()
 
     # Test file path
-    test_file = Path("VFP_Files_Copy\Prgs\dayview_sql-18022025.prg")
+    test_file = Path("VFP_Files_Copy\Forms\20191119invmcare_sql.spr")
 
     if not test_file.exists():
         print(f"[ERROR] Test file not found: {test_file}")
@@ -64,10 +64,12 @@ def main():
 
     # Initialize processor
     print("2. Initializing two-phase processor...")
-    config = ConfigManager()
-    client = InstructorLLMClient(config)
-    processor = TwoPhaseProcessor(client, max_chunk_lines=30)
-    print("   [OK] Processor initialized")
+    config_manager = ConfigManager()
+    client = InstructorLLMClient(config_manager)
+
+    # Pass config dict to processor for adaptive chunking and validation
+    processor = TwoPhaseProcessor(client, config=config_manager.config)
+    print("   [OK] Processor initialized with adaptive chunking & validation")
     print()
 
     # Process the file
