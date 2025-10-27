@@ -22,8 +22,16 @@ from typing import List, Optional
 from dataclasses import dataclass
 
 from instructor_client import InstructorLLMClient
-from vfp_chunker import VFPChunker, CodeChunk
-from structured_output import FileAnalysis, ChunkComments, FileHeaderComment, CommentBlock
+from vfp_chunker import AdaptiveVFPChunker, CodeChunk
+from structured_output import (
+    FileAnalysis,
+    ChunkComments,
+    FileHeaderComment,
+    CommentBlock,
+    CommentQualityValidator,
+    CommentInsertionValidator,
+    CommentMetrics
+)
 
 
 @dataclass
@@ -35,6 +43,14 @@ class ProcessingResult:
     chunks_processed: int
     total_chunks: int
     error_message: Optional[str] = None
+    validation_issues: List[str] = None
+    metrics: Optional[dict] = None
+
+    def __post_init__(self):
+        if self.validation_issues is None:
+            self.validation_issues = []
+        if self.metrics is None:
+            self.metrics = {}
 
 
 class TwoPhaseProcessor:
@@ -44,19 +60,31 @@ class TwoPhaseProcessor:
     This processor splits the commenting task into two phases:
     1. Extract file-level context (metadata only)
     2. Comment code chunks with context awareness
+
+    Enhanced with validation and metrics tracking for production quality.
     """
 
-    def __init__(self, instructor_client: InstructorLLMClient, max_chunk_lines: int = 100):
+    def __init__(self, instructor_client: InstructorLLMClient, config: dict = None):
         """
-        Initialize the two-phase processor.
+        Initialize the two-phase processor with adaptive chunking and validation.
 
         Args:
             instructor_client: Instructor client for LLM communication
-            max_chunk_lines: Maximum lines per chunk
+            config: Configuration dictionary (for adaptive chunking settings)
         """
         self.client = instructor_client
-        self.chunker = VFPChunker(max_chunk_lines=max_chunk_lines)
+        self.config = config
+
+        # Use AdaptiveVFPChunker for hardware-aware chunking
+        self.chunker = AdaptiveVFPChunker(config=config)
+
+        # Initialize validators
+        self.quality_validator = CommentQualityValidator()
+        self.insertion_validator = CommentInsertionValidator()
+        self.metrics_calculator = CommentMetrics()
+
         self.logger = logging.getLogger(__name__)
+        self.logger.info("TwoPhaseProcessor initialized with adaptive chunking and validation")
 
     def process_file(self, vfp_code: str, filename: str, relative_path: str) -> ProcessingResult:
         """
@@ -163,6 +191,8 @@ class TwoPhaseProcessor:
         Uses simplified ChunkComments model - LLM returns ONLY comments,
         we manually insert them into the original code (100% preservation).
 
+        Enhanced with multi-layer validation and quality metrics.
+
         Args:
             chunk: The code chunk to comment
             context: File-level context from Phase 1
@@ -187,6 +217,38 @@ class TwoPhaseProcessor:
                 self.logger.error(f"Failed to generate comments for chunk: {chunk.name}")
                 return None
 
+            # === VALIDATION LAYER 1: Comment Quality ===
+            is_valid, quality_issues = self.quality_validator.validate_comments(
+                original_code=chunk.content,
+                chunk_comments=comments,
+                file_context=context
+            )
+
+            if quality_issues:
+                self.logger.warning(f"Comment quality issues for chunk {chunk.name}:")
+                for issue in quality_issues:
+                    self.logger.warning(f"  - {issue}")
+
+            # === VALIDATION LAYER 2: Pre-Insertion ===
+            is_valid_insertion, insertion_issues = self.insertion_validator.validate_insertion(
+                original_code=chunk.content,
+                chunk_comments=comments
+            )
+
+            if not is_valid_insertion:
+                self.logger.error(f"Pre-insertion validation failed for chunk {chunk.name}:")
+                for issue in insertion_issues:
+                    self.logger.error(f"  - {issue}")
+                return None
+
+            # Check if comments are unsorted (non-critical, but worth logging)
+            line_numbers = [c.insert_before_line for c in comments.inline_comments]
+            if line_numbers and line_numbers != sorted(line_numbers):
+                self.logger.warning(
+                    f"Comments for chunk {chunk.name} are unsorted - "
+                    f"will be auto-sorted during insertion"
+                )
+
             # Manually insert comments into ORIGINAL code (NO code modification)
             # include_header=False because master header is added in _assemble_file
             commented_code = comments.insert_comments_into_code(
@@ -194,7 +256,35 @@ class TwoPhaseProcessor:
                 include_header=False
             )
 
-            self.logger.info(f"[OK] Comments inserted into chunk: {chunk.name} (code preserved 100%)")
+            # === VALIDATION LAYER 3: Post-Insertion ===
+            expected_comment_count = len(comments.inline_comments) + 1  # +1 for header
+            is_valid_post, post_issues = self.insertion_validator.validate_post_insertion(
+                original_code=chunk.content,
+                commented_code=commented_code,
+                expected_comment_count=expected_comment_count
+            )
+
+            if not is_valid_post:
+                self.logger.error(f"Post-insertion validation failed for chunk {chunk.name}:")
+                for issue in post_issues:
+                    self.logger.error(f"  - {issue}")
+                # Don't fail - code preservation is still OK, just comment count mismatch
+                self.logger.warning("Proceeding despite post-insertion issues (code is preserved)")
+
+            # === METRICS CALCULATION ===
+            chunk_metrics = self.metrics_calculator.calculate_metrics(
+                original_code=chunk.content,
+                commented_code=commented_code,
+                file_context=context
+            )
+
+            self.logger.info(
+                f"[OK] Chunk {chunk.name}: "
+                f"{chunk_metrics['total_comment_lines']} comments added, "
+                f"ratio={chunk_metrics['comment_ratio']:.1f}%, "
+                f"avg_length={chunk_metrics['avg_comment_length']:.1f}"
+            )
+
             return commented_code
 
         except Exception as e:
@@ -282,12 +372,14 @@ Endif
 Return ""
 """
 
-    print("Two-Phase Processor Test")
+    print("Two-Phase Processor Test (with Adaptive Chunking & Validation)")
     print("=" * 70)
 
-    config = ConfigManager()
-    client = InstructorLLMClient(config)
-    processor = TwoPhaseProcessor(client)
+    config_manager = ConfigManager()
+    client = InstructorLLMClient(config_manager)
+
+    # Pass config dict to processor for adaptive chunking
+    processor = TwoPhaseProcessor(client, config=config_manager.config)
 
     result = processor.process_file(
         vfp_code=sample_code,
@@ -298,6 +390,15 @@ Return ""
     if result.success:
         print("[OK] Processing successful!")
         print(f"Chunks processed: {result.chunks_processed}/{result.total_chunks}")
+
+        if result.validation_issues:
+            print(f"\nValidation issues: {len(result.validation_issues)}")
+            for issue in result.validation_issues[:5]:
+                print(f"  - {issue}")
+
+        if result.metrics:
+            print(f"\nMetrics: {result.metrics}")
+
         print("\nCommented code:")
         print("-" * 70)
         print(result.commented_code)

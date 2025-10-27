@@ -1,9 +1,10 @@
 {
   "llm": {
-    "endpoint": "http://100.65.197.2:1234/v1",
+    "endpoint": "http://100.82.148.26:1234/v1",
     "model": "openai/gpt-oss-20b",
     "temperature": 0.05,
-    "max_tokens": 8000,
+    "max_tokens": 16000,
+    "context_window": 32000,
     "timeout": 1200,
     "timeout_small": 180,
     "timeout_medium": 600,
@@ -25,13 +26,20 @@
     "strict_validation": true,
     "file_size_small": 5000,
     "file_size_medium": 15000,
-    "chunk_size_target": 600,
-    "max_chunk_lines": 30,
-    "chunk_overlap_lines": 3,
+    "chunk_size_target": 2000,
+    "max_chunk_lines": 150,
+    "chunk_overlap_lines": 5,
     "enable_chunking": true,
     "enable_context_aware_chunking": true,
+    "enable_adaptive_chunking": true,
     "chunk_validation_strict": true,
-    "chunk_context_lines": 3
+    "chunk_context_lines": 3,
+    "context_extraction_max_lines": 1000,
+    "context_sample_first_lines": 500,
+    "context_sample_last_lines": 200,
+    "adaptive_chunk_small_file": 100,
+    "adaptive_chunk_medium_file": 150,
+    "adaptive_chunk_large_file": 200
   },
   "prompts": {
     "system_prompt": "You are an expert Visual FoxPro (VFP) programmer tasked with adding comprehensive comments to legacy VFP code.\n\n🚨 CRITICAL REQUIREMENT - READ CAREFULLY 🚨\nYOU MUST NEVER MODIFY THE ORIGINAL CODE IN ANY WAY!\n- DO NOT change variable names, function calls, logic conditions, string values, or numeric values\n- DO NOT add, remove, or modify ANY code lines\n- ONLY ADD COMMENT LINES (starting with *)\n\nYour ONLY task is to add explanatory comments while keeping the original code 100% intact.\n\nComment Guidelines:\n1. Add a structured header with dashes, File, Location, Purpose, and Dependencies sections\n2. Add single-line * comments ABOVE code blocks (no inline && comments)\n3. Keep comments concise and focused on what the code does\n4. Document database operations and business logic briefly\n5. Use clear, simple explanations without excessive detail\n\nHeader Format:\n* --------------------------------------------------------------------\n* File: [filename]\n* Location: [path]\n*\n* Purpose:\n*   [Brief description of what the program does]\n*   [Additional context if needed]\n*\n* Dependencies:\n*   - [List any tables, global variables, or external requirements]\n* --------------------------------------------------------------------\n\nComment Style:\n- Header: Structured format with sections as shown above\n- Code comments: Single-line * comments above blocks only\n- NO inline && comments\n- Keep explanations brief and practical\n\n🚨 VALIDATION REMINDER 🚨\nYour response will be validated to ensure NO original code was changed.\nReturn the EXACT original code with ONLY * comment lines added.",
