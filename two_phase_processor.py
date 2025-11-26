@@ -1,33 +1,34 @@
 """
-Two-Phase VFP Comment Processor
-================================
-Implements a two-phase approach for commenting large VFP files:
+Two-Phase Code Comment Processor
+=================================
+Language-agnostic two-phase approach for commenting large code files:
 
 Phase 1: Context Extraction
 - Analyzes the entire file to extract high-level metadata
-- Identifies purpose, tables, procedures, dependencies
+- Identifies purpose, dependencies, classes/procedures
 - Low token usage, fast processing
 
 Phase 2: Chunk-Based Commenting
-- Splits code at procedural boundaries
+- Splits code at logical boundaries (language-specific)
 - Comments each chunk with full context awareness
 - Validates code preservation per chunk
 - Assembles commented chunks into final output
 
 This approach prevents LLM crashes on large files and maintains code integrity.
+
+Supports:
+- VFP (.prg, .spr files)
+- C# (.cs files)
+- Extensible to other languages via handler pattern
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Any
 from dataclasses import dataclass
 
 from instructor_client import InstructorLLMClient
-from vfp_chunker import AdaptiveVFPChunker, CodeChunk
+from language_handlers import LanguageHandler
 from structured_output import (
-    FileAnalysis,
-    ChunkComments,
-    FileHeaderComment,
-    CommentBlock,
     CommentQualityValidator,
     CommentInsertionValidator,
     CommentMetrics
@@ -39,7 +40,7 @@ class ProcessingResult:
     """Result of two-phase processing"""
     success: bool
     commented_code: Optional[str]
-    context: Optional[FileAnalysis]
+    context: Optional[Any]  # FileAnalysis model (VFP or C#)
     chunks_processed: int
     total_chunks: int
     error_message: Optional[str] = None
@@ -55,43 +56,47 @@ class ProcessingResult:
 
 class TwoPhaseProcessor:
     """
-    Two-phase processor for large VFP files.
+    Language-agnostic two-phase processor for large code files.
 
     This processor splits the commenting task into two phases:
     1. Extract file-level context (metadata only)
     2. Comment code chunks with context awareness
 
     Enhanced with validation and metrics tracking for production quality.
+
+    Uses language handlers for language-specific logic (VFP, C#, etc.).
     """
 
-    def __init__(self, instructor_client: InstructorLLMClient, config: dict = None):
+    def __init__(self, instructor_client: InstructorLLMClient, handler: LanguageHandler, config: dict = None):
         """
-        Initialize the two-phase processor with adaptive chunking and validation.
+        Initialize the two-phase processor with language handler.
 
         Args:
             instructor_client: Instructor client for LLM communication
+            handler: Language handler (VFPHandler, CSharpHandler, etc.)
             config: Configuration dictionary (for adaptive chunking settings)
         """
         self.client = instructor_client
+        self.handler = handler
         self.config = config
 
-        # Use AdaptiveVFPChunker for hardware-aware chunking
-        self.chunker = AdaptiveVFPChunker(config=config)
+        # Use handler to create language-specific chunker
+        self.chunker = handler.create_chunker(config)
 
-        # Initialize validators
-        self.quality_validator = CommentQualityValidator()
+        # Initialize validators (pass handler for language-aware validation)
+        self.quality_validator = CommentQualityValidator(handler)
         self.insertion_validator = CommentInsertionValidator()
         self.metrics_calculator = CommentMetrics()
 
         self.logger = logging.getLogger(__name__)
-        self.logger.info("TwoPhaseProcessor initialized with adaptive chunking and validation")
+        self.logger.info(f"TwoPhaseProcessor initialized for {handler.get_language_name()} with adaptive chunking")
 
-    def process_file(self, vfp_code: str, filename: str, relative_path: str) -> ProcessingResult:
+    def process_file(self, code: str, filename: str, relative_path: str) -> ProcessingResult:
         """
-        Process a VFP file using two-phase approach.
+        Process a code file using two-phase approach.
 
         Args:
-            vfp_code: The VFP code to comment
+            code: The source code to comment (VFP, C#, etc.)
             filename: Name of the file
             relative_path: Relative path from root
 
@@ -99,11 +104,11 @@ class TwoPhaseProcessor:
             ProcessingResult with commented code or error
         """
         self.logger.info(f"Starting two-phase processing for: {filename}")
-        self.logger.info(f"File size: {len(vfp_code)} chars, {len(vfp_code.split(chr(10)))} lines")
+        self.logger.info(f"File size: {len(code)} chars, {len(code.split(chr(10)))} lines")
 
         # Phase 1: Extract context
         self.logger.info("Phase 1: Extracting file context...")
-        context = self._extract_context(vfp_code, filename, relative_path)
+        context = self._extract_context(code, filename, relative_path)
 
         if not context:
             return ProcessingResult(
@@ -119,7 +124,7 @@ class TwoPhaseProcessor:
 
         # Phase 2: Chunk and comment
         self.logger.info("Phase 2: Chunking code...")
-        chunks = self.chunker.chunk_code(vfp_code)
+        chunks = self.chunker.chunk_code(code)
         self.logger.info(f"Created {len(chunks)} chunks")
         self.logger.info(self.chunker.get_chunk_summary(chunks))
 
@@ -155,47 +160,59 @@ class TwoPhaseProcessor:
             total_chunks=len(chunks)
         )
 
-    def _extract_context(self, vfp_code: str, filename: str, relative_path: str) -> Optional[FileAnalysis]:
+    def _extract_context(self, code: str, filename: str, relative_path: str) -> Optional[Any]:
         """
         Phase 1: Extract file-level context without commenting.
 
         Args:
-            vfp_code: The VFP code to analyze
+            code: The source code to analyze
             filename: Name of the file
             relative_path: Relative path from root
 
         Returns:
-            FileAnalysis object or None on failure
+            FileAnalysis object (language-specific model) or None on failure
         """
         try:
-            context = self.client.analyze_vfp_file(
-                vfp_code=vfp_code,
-                filename=filename,
-                relative_path=relative_path
+            # Use handler to get the appropriate Pydantic model
+            models = self.handler.get_pydantic_models()
+            FileAnalysisModel = models['FileAnalysis']
+
+            # Get Phase 1 prompt from handler
+            prompt = self.handler.get_phase1_prompt(code, filename, relative_path)
+            system_prompt = self.handler.get_system_prompt()
+
+            # Call generic structured generation
+            context = self.client.generate_structured(
+                prompt=prompt,
+                response_model=FileAnalysisModel,
+                system_prompt=system_prompt
             )
+
             return context
         except Exception as e:
             self.logger.error(f"Context extraction failed: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def _comment_chunk(
         self,
-        chunk: CodeChunk,
-        context: FileAnalysis,
+        chunk,  # CodeChunk (type varies by language)
+        context: Any,  # FileAnalysis (language-specific model)
         filename: str,
         relative_path: str
     ) -> Optional[str]:
         """
         Phase 2: Comment a single code chunk with context awareness.
 
-        Uses simplified ChunkComments model - LLM returns ONLY comments,
+        Uses language-specific ChunkComments model - LLM returns ONLY comments,
         we manually insert them into the original code (100% preservation).
 
         Enhanced with multi-layer validation and quality metrics.
 
         Args:
             chunk: The code chunk to comment
-            context: File-level context from Phase 1
+            context: File-level context from Phase 1 (language-specific)
             filename: Name of the file
             relative_path: Relative path from root
 
@@ -203,14 +220,27 @@ class TwoPhaseProcessor:
             Commented code string or None on failure
         """
         try:
-            # Generate comments for this chunk (LLM returns comments only, not code)
-            comments = self.client.generate_comments_for_chunk(
-                vfp_code=chunk.content,
+            # Get handler models and prompts
+            models = self.handler.get_pydantic_models()
+            ChunkCommentsModel = models['ChunkComments']
+
+            # Get Phase 2 prompt from handler
+            prompt = self.handler.get_phase2_prompt(
+                chunk=chunk.content,
                 chunk_name=chunk.name,
                 chunk_type=chunk.chunk_type,
                 file_context=context,
                 filename=filename,
                 relative_path=relative_path
+            )
+
+            system_prompt = self.handler.get_system_prompt()
+
+            # Generate comments for this chunk
+            comments = self.client.generate_structured(
+                prompt=prompt,
+                response_model=ChunkCommentsModel,
+                system_prompt=system_prompt
             )
 
             if not comments:
@@ -295,7 +325,7 @@ class TwoPhaseProcessor:
 
     def _assemble_file(
         self,
-        context: FileAnalysis,
+        context: Any,  # FileAnalysis (language-specific model)
         commented_chunks: List[str],
         filename: str,
         relative_path: str
@@ -303,8 +333,10 @@ class TwoPhaseProcessor:
         """
         Assemble the final commented file from context and chunks.
 
+        Uses handler to format the file header in language-specific style.
+
         Args:
-            context: File-level context
+            context: File-level context (language-specific model)
             commented_chunks: List of commented code chunks
             filename: Name of the file
             relative_path: Relative path from root
@@ -314,30 +346,81 @@ class TwoPhaseProcessor:
         """
         lines = []
 
-        # Add file header
-        lines.append("* " + "=" * 68)
-        lines.append(f"* FILE: {filename}")
-        lines.append(f"* LOCATION: {relative_path}")
-        lines.append("* " + "=" * 68)
-        lines.append("*")
-        lines.append(f"* OVERVIEW: {context.file_overview}")
-        lines.append("*")
+        # Build header data from context (language-agnostic mapping)
+        header_data = {
+            'filename': filename,
+            'location': relative_path,
+            'file_overview': context.file_overview
+        }
 
-        if context.procedures:
-            lines.append("* PROCEDURES/FUNCTIONS:")
-            for proc in context.procedures:
-                lines.append(f"*   - {proc.name} (Line {proc.line_number}): {proc.description}")
+        # Add language-specific fields if available
+        if hasattr(context, 'procedures') and context.procedures:
+            header_data['procedures'] = context.procedures
+        if hasattr(context, 'dependencies') and context.dependencies:
+            header_data['dependencies'] = context.dependencies
+        if hasattr(context, 'total_lines'):
+            header_data['total_lines'] = context.total_lines
+        if hasattr(context, 'namespace'):
+            header_data['namespace'] = context.namespace
+        if hasattr(context, 'classes') and context.classes:
+            header_data['classes'] = context.classes
+
+        # Use handler to format header (this will create language-specific header)
+        # Note: For now, we'll create a manual header since handler.format_file_header
+        # expects a specific dict structure. We'll improve this later.
+
+        # VFP-style or C#-style header based on language
+        if self.handler.get_language_name() == "vfp":
+            # VFP-style header
+            lines.append("* " + "=" * 68)
+            lines.append(f"* FILE: {filename}")
+            lines.append(f"* LOCATION: {relative_path}")
+            lines.append("* " + "=" * 68)
+            lines.append("*")
+            lines.append(f"* OVERVIEW: {context.file_overview}")
             lines.append("*")
 
-        if context.dependencies:
-            lines.append("* DEPENDENCIES:")
-            for dep in context.dependencies:
-                lines.append(f"*   - {dep}")
-            lines.append("*")
+            if hasattr(context, 'procedures') and context.procedures:
+                lines.append("* PROCEDURES/FUNCTIONS:")
+                for proc in context.procedures:
+                    lines.append(f"*   - {proc.name} (Line {proc.line_number}): {proc.description}")
+                lines.append("*")
 
-        lines.append(f"* TOTAL LINES: {context.total_lines}")
-        lines.append("* " + "=" * 68)
-        lines.append("")
+            if hasattr(context, 'dependencies') and context.dependencies:
+                lines.append("* DEPENDENCIES:")
+                for dep in context.dependencies:
+                    lines.append(f"*   - {dep}")
+                lines.append("*")
+
+            if hasattr(context, 'total_lines'):
+                lines.append(f"* TOTAL LINES: {context.total_lines}")
+            lines.append("* " + "=" * 68)
+            lines.append("")
+
+        elif self.handler.get_language_name() == "csharp":
+            # C#-style header
+            lines.append("// =====================================================")
+            lines.append(f"// File: {filename}")
+            lines.append(f"// Location: {relative_path}")
+            lines.append("// =====================================================")
+            lines.append(f"// Overview: {context.file_overview}")
+            lines.append("//")
+
+            if hasattr(context, 'namespace') and context.namespace:
+                lines.append(f"// Namespace: {context.namespace}")
+
+            if hasattr(context, 'classes') and context.classes:
+                lines.append("// Classes:")
+                for cls in context.classes[:5]:  # Show first 5
+                    lines.append(f"//   - {cls.name} ({cls.class_type})")
+                lines.append("//")
+
+            if hasattr(context, 'database_entities') and context.database_entities:
+                lines.append(f"// Database Entities: {', '.join(context.database_entities[:5])}")
+                lines.append("//")
+
+            lines.append("// =====================================================")
+            lines.append("")
 
         # Add all commented chunks
         for i, chunk in enumerate(commented_chunks):
