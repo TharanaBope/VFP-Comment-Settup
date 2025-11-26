@@ -695,6 +695,10 @@ Return structured CSharpFileAnalysis object."""
         """Generate Phase 2 (chunk commenting) prompt for C#"""
         line_count = len(chunk.split('\n'))
 
+        # Add line numbers to chunk for easier reference
+        chunk_lines = chunk.split('\n')
+        numbered_chunk = '\n'.join([f"{i+1:4d} | {line}" for i, line in enumerate(chunk_lines)])
+
         # Build context summary
         context_summary = f"""FILE CONTEXT:
 - Purpose: {file_context.file_overview}
@@ -715,8 +719,9 @@ Type: {chunk_type}
 Name: {chunk_name}
 Lines: {line_count}
 
+CODE WITH LINE NUMBERS (use these line numbers for insert_before_line):
 ```csharp
-{chunk}
+{numbered_chunk}
 ```
 
 Add comprehensive C# documentation:
@@ -728,14 +733,23 @@ Add comprehensive C# documentation:
    - <returns>Return value description</returns>
    - <exception cref="ExceptionType">When thrown</exception>
 3. Properties: XML documentation with <summary> and <value>
-4. Complex Logic: Inline comments (//) explaining:
+4. CRITICAL: Add inline comments (//) throughout the code explaining:
+   - Complex conditionals (if/switch statements with business logic)
    - LINQ queries and lambda expressions
    - Async/await operations
-   - Entity Framework queries
-   - Business rules and validation
+   - Entity Framework queries (DbContext, DbSet operations)
+   - Business rules and validation logic
+   - API calls and external service interactions
+   - Loop logic and iterations
+   - String manipulations and transformations
+   - Error handling and exception cases
+   - Variable assignments with non-obvious purposes
+   - Mathematical calculations or algorithms
+   AIM FOR: At least one inline comment every 5-10 lines of code
 5. Database Operations: Document DbContext usage, entity queries, transactions
-6. Design Patterns: Note Repository, Factory, Singleton usage
-7. Dependency Injection: Document injected services
+6. Design Patterns: Note Repository, Factory, Singleton, DI usage
+7. File I/O Operations: Document file reads, writes, path manipulations
+8. Configuration Loading: Document settings and configuration access
 
 Return JSON with two fields:
 1. "file_header": {{
@@ -754,6 +768,14 @@ Return JSON with two fields:
        "context": "Explanation"
      }}
    ]
+
+IMPORTANT LINE NUMBERING RULES:
+- Line numbers are 1-based (first line = 1)
+- For XML documentation (///) before methods/classes: Place IMMEDIATELY before the declaration
+- For inline comments (//): Place BEFORE the code line being explained
+- Example: To comment a method starting at line 15, use "insert_before_line": 15
+- For code inside a method at line 20, use "insert_before_line": 20
+- ALWAYS verify line numbers match the actual code lines in the chunk above
 
 DO NOT return the code itself."""
 
