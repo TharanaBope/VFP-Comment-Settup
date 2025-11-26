@@ -380,14 +380,40 @@ class CommentQualityValidator:
     Multi-layer validator for comment quality and accuracy.
 
     Validates that comments are:
-    1. Syntactically correct (VFP * syntax)
+    1. Syntactically correct (language-specific syntax via handler)
     2. Relevant to the actual code
     3. Complete (has header and inline comments)
     4. References business terms from Phase 1 context
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, handler=None):
+        """
+        Initialize validator with language handler.
+
+        Args:
+            handler: Language handler (VFPHandler, CSharpHandler, etc.) for syntax validation
+        """
+        self.handler = handler
+
+    def _get_header_comment_text(self, file_header) -> str:
+        """
+        Get comment text from file header in a language-aware way.
+
+        Args:
+            file_header: FileHeaderComment or CSharpFileHeaderComment
+
+        Returns:
+            Comment text as string
+        """
+        # Try C# method first
+        if hasattr(file_header, 'to_csharp_comment'):
+            return file_header.to_csharp_comment()
+        # Fall back to VFP method
+        elif hasattr(file_header, 'to_vfp_comment'):
+            return file_header.to_vfp_comment()
+        else:
+            # Fallback: return empty string if neither method exists
+            return ""
 
     def validate_comments(
         self,
@@ -408,8 +434,8 @@ class CommentQualityValidator:
         """
         issues = []
 
-        # Layer 1: Syntax validation
-        syntax_issues = self._validate_vfp_syntax(chunk_comments)
+        # Layer 1: Syntax validation (language-specific via handler)
+        syntax_issues = self._validate_comment_syntax(chunk_comments)
         issues.extend(syntax_issues)
 
         # Layer 2: Relevance validation
@@ -428,8 +454,18 @@ class CommentQualityValidator:
         is_valid = len(issues) == 0
         return is_valid, issues
 
-    def _validate_vfp_syntax(self, chunk_comments: ChunkComments) -> List[str]:
-        """Validate all comments use correct VFP * syntax"""
+    def _validate_comment_syntax(self, chunk_comments) -> List[str]:
+        """
+        Validate all comments use correct language-specific syntax.
+
+        Delegates to the language handler for syntax validation.
+        Falls back to VFP validation if no handler provided (backward compatibility).
+        """
+        if self.handler and hasattr(self.handler, 'validate_chunk_comments_syntax'):
+            # Use language handler for validation
+            return self.handler.validate_chunk_comments_syntax(chunk_comments)
+
+        # Fallback to VFP validation for backward compatibility
         issues = []
 
         # Check file header
@@ -446,7 +482,7 @@ class CommentQualityValidator:
 
         return issues
 
-    def _validate_relevance(self, original_code: str, chunk_comments: ChunkComments) -> List[str]:
+    def _validate_relevance(self, original_code: str, chunk_comments) -> List[str]:
         """Validate comments reference actual code terms"""
         issues = []
 
@@ -454,16 +490,17 @@ class CommentQualityValidator:
         code_lower = original_code.lower()
         code_terms = set()
 
-        # Extract VFP keywords and identifiers
+        # Extract keywords and identifiers (language-agnostic)
         for line in original_code.split('\n'):
             stripped = line.strip()
-            if stripped and not stripped.startswith('*'):
+            # Skip comment lines (works for VFP *, C# //, ///)
+            if stripped and not stripped.startswith('*') and not stripped.startswith('//'):
                 # Extract potential identifiers (simplified)
                 tokens = stripped.replace('(', ' ').replace(')', ' ').replace(',', ' ').split()
                 code_terms.update(t.lower() for t in tokens if len(t) > 2)
 
-        # Check if comments reference code terms
-        all_comments = chunk_comments.file_header.to_vfp_comment()
+        # Get all comment text (language-aware)
+        all_comments = self._get_header_comment_text(chunk_comments.file_header)
         for comment_block in chunk_comments.inline_comments:
             all_comments += '\n'.join(comment_block.comment_lines)
 
@@ -499,21 +536,21 @@ class CommentQualityValidator:
 
     def _validate_business_terms(
         self,
-        chunk_comments: ChunkComments,
-        file_context: FileAnalysis
+        chunk_comments,
+        file_context
     ) -> List[str]:
         """Validate comments mention dependencies from Phase 1"""
         issues = []
 
-        # Gather all comment text
-        all_comments = chunk_comments.file_header.to_vfp_comment()
+        # Gather all comment text (language-aware)
+        all_comments = self._get_header_comment_text(chunk_comments.file_header)
         for comment_block in chunk_comments.inline_comments:
             all_comments += '\n'.join(comment_block.comment_lines)
 
         comments_lower = all_comments.lower()
 
         # Check if dependencies are mentioned
-        if file_context.dependencies:
+        if hasattr(file_context, 'dependencies') and file_context.dependencies:
             mentioned_deps = 0
             for dep in file_context.dependencies:
                 # Extract key term from dependency (e.g., "Table: USERS" -> "users")
@@ -705,12 +742,16 @@ class CommentMetrics:
                 file_context
             )
 
-        # Procedure coverage
-        if file_context and file_context.procedures:
-            metrics['procedure_coverage'] = self._calculate_procedure_coverage(
-                commented_code,
-                file_context
-            )
+        # Procedure/method coverage (works with both VFP procedures and C# methods)
+        if file_context:
+            # Check for either 'procedures' (VFP) or 'methods' (C#)
+            has_procs_or_methods = (hasattr(file_context, 'procedures') and file_context.procedures) or \
+                                   (hasattr(file_context, 'methods') and file_context.methods)
+            if has_procs_or_methods:
+                metrics['procedure_coverage'] = self._calculate_procedure_coverage(
+                    commented_code,
+                    file_context
+                )
 
         # Average comment length
         metrics['avg_comment_length'] = self._calculate_avg_comment_length(commented_code)
@@ -741,41 +782,55 @@ class CommentMetrics:
     def _calculate_keyword_coverage(
         self,
         commented_code: str,
-        file_context: FileAnalysis
+        file_context
     ) -> float:
-        """Calculate % of dependencies mentioned in comments"""
-        if not file_context.dependencies:
+        """
+        Calculate % of dependencies mentioned in comments.
+
+        Works with both VFP (dependencies) and C# (external_dependencies) models.
+        """
+        # Get dependencies list - check for both VFP and C# field names
+        deps = getattr(file_context, 'dependencies', None) or getattr(file_context, 'external_dependencies', None)
+
+        if not deps:
             return 100.0
 
         comments_lower = commented_code.lower()
         mentioned = 0
 
-        for dep in file_context.dependencies:
+        for dep in deps:
             # Extract key terms from dependency
             dep_terms = dep.lower().split()
             if any(term in comments_lower for term in dep_terms if len(term) > 3):
                 mentioned += 1
 
-        return (mentioned / len(file_context.dependencies)) * 100
+        return (mentioned / len(deps)) * 100
 
     def _calculate_procedure_coverage(
         self,
         commented_code: str,
-        file_context: FileAnalysis
+        file_context
     ) -> float:
-        """Calculate % of procedures mentioned in comments"""
-        if not file_context.procedures:
+        """
+        Calculate % of procedures/methods mentioned in comments.
+
+        Works with both VFP (procedures) and C# (methods) models.
+        """
+        # Get procedures/methods list - check for both VFP and C# field names
+        procs = getattr(file_context, 'procedures', None) or getattr(file_context, 'methods', None)
+
+        if not procs:
             return 100.0
 
         comments_lower = commented_code.lower()
         mentioned = 0
 
-        for proc in file_context.procedures:
+        for proc in procs:
             proc_name = proc.name.lower()
             if proc_name in comments_lower:
                 mentioned += 1
 
-        return (mentioned / len(file_context.procedures)) * 100
+        return (mentioned / len(procs)) * 100
 
     def _calculate_avg_comment_length(self, commented_code: str) -> float:
         """Calculate average length of comment lines"""
