@@ -232,7 +232,7 @@ def process_batch(
 
     # Scan for code files
     print(f"\nScanning for {language.upper()} files...")
-    files = scanner.scan_vfp_files()
+    files = scanner.scan_code_files()
 
     if not files:
         print(f"No {language.upper()} files found to process.")
