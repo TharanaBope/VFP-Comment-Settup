@@ -208,3 +208,21 @@ class LanguageHandler(ABC):
                 - was_sampled: True if sampling occurred, False if full code returned
         """
         pass
+
+    def allows_duplicate_insertion_points(self) -> bool:
+        """
+        Specify whether this language allows multiple comment blocks at the same line.
+
+        Some languages (like C#) may need multiple comment blocks at the same insertion
+        point (e.g., XML documentation followed by an inline comment). Other languages
+        (like VFP) typically use one comment per line, and duplicates indicate LLM errors.
+
+        This is a concrete method (not abstract) with a default implementation.
+        Override in language handlers to customize behavior.
+
+        Returns:
+            bool: True if language allows duplicates, False for strict validation
+
+        Default: False (strict validation - no duplicate insertion points allowed)
+        """
+        return False

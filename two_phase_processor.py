@@ -85,7 +85,7 @@ class TwoPhaseProcessor:
 
         # Initialize validators (pass handler for language-aware validation)
         self.quality_validator = CommentQualityValidator(handler)
-        self.insertion_validator = CommentInsertionValidator()
+        self.insertion_validator = CommentInsertionValidator(handler)
         self.metrics_calculator = CommentMetrics()
 
         self.logger = logging.getLogger(__name__)

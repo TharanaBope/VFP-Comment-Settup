@@ -572,13 +572,20 @@ class CommentInsertionValidator:
 
     Performs pre-insertion and post-insertion validation to ensure:
     1. Line numbers are valid
-    2. No duplicate insertions
+    2. No duplicate insertions (language-dependent)
     3. Comments are sorted correctly
     4. Original code is preserved
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, handler=None):
+        """
+        Initialize validator with optional language handler.
+
+        Args:
+            handler: Language handler for language-specific validation rules
+                     If None, uses default strict validation (no duplicates)
+        """
+        self.handler = handler
 
     def validate_insertion(
         self,
@@ -608,11 +615,19 @@ class CommentInsertionValidator:
             elif line_num > total_lines + 1:  # Allow insert after last line
                 issues.append(f"Comment {idx}: line number {line_num} > {total_lines + 1}")
 
-        # Check for duplicate line numbers
+        # Check for duplicate line numbers (language-dependent)
+        # Some languages (C#) allow multiple comments at same line, others (VFP) don't
         line_numbers = [c.insert_before_line for c in chunk_comments.inline_comments]
         if len(line_numbers) != len(set(line_numbers)):
-            duplicates = [ln for ln in line_numbers if line_numbers.count(ln) > 1]
-            issues.append(f"Duplicate insertion points: {set(duplicates)}")
+            # Check if language allows duplicates
+            allows_duplicates = (
+                self.handler.allows_duplicate_insertion_points()
+                if self.handler else False
+            )
+
+            if not allows_duplicates:
+                duplicates = [ln for ln in line_numbers if line_numbers.count(ln) > 1]
+                issues.append(f"Duplicate insertion points: {set(duplicates)}")
 
         # NOTE: We don't fail on unsorted comments because insert_comments_into_code()
         # automatically sorts them anyway. This is just informational.

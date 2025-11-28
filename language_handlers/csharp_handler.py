@@ -899,3 +899,18 @@ DO NOT return the code itself."""
 
         sampled_code = '\n'.join(sample_parts)
         return sampled_code, True
+
+    def allows_duplicate_insertion_points(self) -> bool:
+        """
+        C# allows multiple comment blocks at the same insertion point.
+
+        This is necessary for C# documentation patterns where you might have:
+        - XML documentation (///) for a method
+        - Plus an inline comment (//) explaining a specific aspect
+
+        Both comments can be inserted before the same line.
+
+        Returns:
+            bool: True (C# allows duplicate insertion points)
+        """
+        return True
