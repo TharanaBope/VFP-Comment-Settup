@@ -561,14 +561,19 @@ class CSharpHandler(LanguageHandler):
         """
         Return comprehensive list of C# files/folders to skip.
 
-        Based on eRx Project Analysis specification:
+        Based on eRx and MHR Project Analysis specifications:
         - Excludes auto-generated files (.Designer.cs, .g.cs, .g.i.cs)
         - Excludes assembly metadata (AssemblyInfo.cs, AssemblyAttributes.cs)
         - Excludes build artifacts (bin/, obj/, Debug/, Release/)
         - Excludes IDE settings (.vs/)
         - Excludes package folders and test results
         - Excludes temporary generated files
+        - Excludes auto-generated service references and code
         - Excludes already-commented files
+
+        IMPORTANT EXCEPTION:
+        - 'GeneratorCodeModifications/' is NOT excluded (contains manual edits)
+        - The exact folder name matching prevents 'GeneratorCode/' from matching it
         """
         return [
             # Already commented files
@@ -607,7 +612,24 @@ class CSharpHandler(LanguageHandler):
             'TestResults/',
 
             # JavaScript dependencies (if any in hybrid projects)
-            'node_modules/'
+            'node_modules/',
+
+            # ===== eRx-specific exclusions =====
+            # Auto-generated WCF/SOAP service references (4 files in eRx)
+            'Connected Services/',
+
+            # ===== MHR-specific exclusions =====
+            # Auto-generated service reference code (15 files in MHR/HI)
+            'GeneratedCode/',
+
+            # Auto-generated HL7 CDA schema (1 massive file: 30,192 lines, 858KB)
+            # This is a separate folder with dot notation
+            'CDA.GeneratedCode/',
+
+            # Auto-generated PCEHR document classes (24 files in MHR/prod/PCEHR)
+            # NOTE: 'GeneratorCodeModifications/' is NOT excluded due to exact matching
+            # The folder name check uses exact match, so 'GeneratorCodeModifications' != 'GeneratorCode'
+            'GeneratorCode/'
         ]
 
     def create_chunker(self, config: dict):
