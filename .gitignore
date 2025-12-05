@@ -3,6 +3,7 @@ compare/
 VFP_Files_Copy/
 MHRandeRx/
 errorlogs/
+converted/
 
 # Ignore Python virtual environment
 venv/

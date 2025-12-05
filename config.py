@@ -69,7 +69,7 @@ class ConfigManager:
             },
             "processing": {
                 "root_directory": "D:/Medical Wizard/VFP Entire Codebase/VFP Comment Settup/VFP_Files_Copy",
-                "file_extensions": [".prg", ".PRG", ".spr", ".SPR"],
+                "file_extensions": [".prg", ".PRG", ".spr", ".SPR", ".sc2", ".SC2", ".fr2", ".FR2", ".mn2", ".MN2", ".lb2", ".LB2"],
                 "output_suffix": "_commented",
                 "batch_size": 1,  # Process one file at a time for maximum safety
                 "retry_attempts": 3,

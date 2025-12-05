@@ -521,7 +521,7 @@ class VFPHandler(LanguageHandler):
         return "vfp"
 
     def get_file_extensions(self) -> List[str]:
-        return ['.prg', '.spr']
+        return ['.prg', '.spr', '.sc2', '.fr2', '.mn2', '.lb2']
 
     def get_skip_patterns(self) -> List[str]:
         return ['_commented']
