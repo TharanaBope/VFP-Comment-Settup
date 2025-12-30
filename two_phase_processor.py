@@ -91,6 +91,18 @@ class TwoPhaseProcessor:
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"TwoPhaseProcessor initialized for {handler.get_language_name()} with adaptive chunking")
 
+    def _flush_logs(self):
+        """
+        Flush all log handlers to ensure diagnostic info is written before LLM calls.
+
+        This is critical for debugging crashes - if the LLM call causes a GPU crash,
+        we need the pre-call state saved to disk for post-crash analysis.
+        """
+        for handler in self.logger.handlers:
+            handler.flush()
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
     def process_file(self, code: str, filename: str, relative_path: str) -> ProcessingResult:
         """
         Process a code file using two-phase approach.
@@ -184,6 +196,10 @@ class TwoPhaseProcessor:
             prompt = self.handler.get_phase1_prompt(preprocessed_code, filename, relative_path)
             system_prompt = self.handler.get_system_prompt()
 
+            # Flush logs before LLM call (for crash diagnostics)
+            self.logger.info(f"Starting Phase 1 LLM call for {filename} (preprocessed: {len(preprocessed_code)} chars)")
+            self._flush_logs()
+
             # Call generic structured generation
             context = self.client.generate_structured(
                 prompt=prompt,
@@ -193,9 +209,7 @@ class TwoPhaseProcessor:
 
             return context
         except Exception as e:
-            self.logger.error(f"Context extraction failed: {e}")
-            import traceback
-            traceback.print_exc()
+            self.logger.exception(f"Context extraction failed: {e}")
             return None
 
     def _comment_chunk(
@@ -241,6 +255,10 @@ class TwoPhaseProcessor:
             )
 
             system_prompt = self.handler.get_system_prompt()
+
+            # Flush logs before LLM call (for crash diagnostics)
+            self.logger.info(f"Starting Phase 2 LLM call for chunk {chunk.name} (preprocessed: {len(preprocessed_chunk)} chars)")
+            self._flush_logs()
 
             # Generate comments for this chunk
             comments = self.client.generate_structured(
@@ -324,9 +342,7 @@ class TwoPhaseProcessor:
             return commented_code
 
         except Exception as e:
-            self.logger.error(f"Chunk commenting failed: {e}")
-            import traceback
-            traceback.print_exc()
+            self.logger.exception(f"Chunk commenting failed: {e}")
             return None
 
     def _assemble_file(

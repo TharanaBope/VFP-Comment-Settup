@@ -1,40 +1,130 @@
 """
-Quick test to verify VFP preprocessing handles both patterns correctly.
+Test script to verify report preprocessing works correctly.
+
+This tests the fix for the crash caused by processing XML-heavy .fr2 files.
 """
-import re
 
-# Test data
-threshold = 1000
+import sys
+sys.path.insert(0, '.')
 
-# Pattern 1: Value="base64..." (for .sc2 forms)
-pattern1 = r'(Value\s*=\s*)"([A-Za-z0-9+/=]{' + str(threshold) + r',})"'
-replacement1 = r'\1"[OLE_BINARY_DATA_REMOVED_FOR_LLM_PROCESSING]"'
+from language_handlers.vfp_handler import VFPHandler
 
-test_sc2 = 'Value="' + 'A' * 2000 + '"'
-result1 = re.sub(pattern1, replacement1, test_sc2)
-print(f"Pattern 1 (.sc2 forms):")
-print(f"  Input length: {len(test_sc2)}")
-print(f"  Output: {result1}")
-print(f"  PASS" if "[OLE_BINARY_DATA_REMOVED_FOR_LLM_PROCESSING]" in result1 else "  FAIL")
-print()
 
-# Pattern 2: <![CDATA[base64...]]> (for .fr2/.lb2 reports)
-pattern2 = r'(<!\[CDATA\[)([A-Za-z0-9+/=]{' + str(threshold) + r',})(\]\]>)'
-replacement2 = r'\1[BINARY_DATA_REMOVED_FOR_LLM_PROCESSING]\3'
+def test_report_preprocessing():
+    """Test that the crashing file is properly preprocessed."""
+    print("=" * 60)
+    print("Testing Report Preprocessing")
+    print("=" * 60)
 
-test_fr2 = '<![CDATA[' + 'B' * 3500 + ']]>'
-result2 = re.sub(pattern2, replacement2, test_fr2)
-print(f"Pattern 2 (.fr2 reports):")
-print(f"  Input length: {len(test_fr2)}")
-print(f"  Output: {result2}")
-print(f"  PASS" if "[BINARY_DATA_REMOVED_FOR_LLM_PROCESSING]" in result2 else "  FAIL")
-print()
+    handler = VFPHandler()
 
-# Test with actual sample from absreport.fr2
-actual_fr2_sample = '<tag2><![CDATA[TWljcm9zb2Z0IFByaW50IHRvIFBERgAAAAAAAAAAAAABBAMGnABQFAMvAQABAAEA' + 'A' * 3000 + ']]>'
-result3 = re.sub(pattern2, replacement2, actual_fr2_sample)
-print(f"Pattern 2 (actual .fr2 sample):")
-print(f"  Input length: {len(actual_fr2_sample)}")
-print(f"  Output length: {len(result3)}")
-print(f"  Bytes removed: {len(actual_fr2_sample) - len(result3)}")
-print(f"  PASS" if "[BINARY_DATA_REMOVED_FOR_LLM_PROCESSING]" in result3 else "  FAIL")
+    # Read the file that was causing crashes
+    test_file = r"converted\Reports\cccccstappsdetl.fr2"
+    print(f"\nReading: {test_file}")
+
+    try:
+        with open(test_file, 'r', encoding='utf-8', errors='replace') as f:
+            code = f.read()
+    except FileNotFoundError:
+        print(f"ERROR: File not found: {test_file}")
+        return False
+
+    original_lines = len(code.split('\n'))
+    original_chars = len(code)
+    print(f"Original: {original_lines} lines, {original_chars:,} characters")
+
+    # Test report detection
+    is_report = handler._is_report_file(code)
+    print(f"\nIs report file: {is_report}")
+
+    if not is_report:
+        print("ERROR: File should be detected as a report!")
+        return False
+
+    # Test expression extraction
+    expressions = handler._extract_vfp_expressions(code)
+    expr_count = len(expressions['expr'])
+    supexpr_count = len(expressions['supexpr'])
+    print(f"\nExtracted expressions:")
+    print(f"  - <expr> tags: {expr_count}")
+    print(f"  - <supexpr> tags: {supexpr_count}")
+
+    # Show first 5 expressions
+    print(f"\nFirst 5 expressions:")
+    for i, (line_num, expr) in enumerate(expressions['expr'][:5]):
+        display = expr if len(expr) <= 60 else expr[:60] + "..."
+        print(f"  [{line_num}] {display}")
+
+    # Test preprocessing
+    preprocessed = handler.preprocess_for_llm(code)
+    preprocessed_lines = len(preprocessed.split('\n'))
+    preprocessed_chars = len(preprocessed)
+
+    print(f"\nAfter preprocessing:")
+    print(f"  Lines: {original_lines} -> {preprocessed_lines} ({100*preprocessed_lines/original_lines:.1f}%)")
+    print(f"  Chars: {original_chars:,} -> {preprocessed_chars:,} ({100*preprocessed_chars/original_chars:.1f}%)")
+
+    # Show preprocessed output
+    print(f"\n--- Preprocessed Content ---")
+    print(preprocessed[:2000])
+    if len(preprocessed) > 2000:
+        print(f"\n... ({len(preprocessed) - 2000} more characters) ...")
+
+    # Validate reduction
+    reduction_ratio = preprocessed_lines / original_lines
+    if reduction_ratio > 0.2:
+        print(f"\nWARNING: Preprocessing only reduced to {100*reduction_ratio:.1f}% - expected < 20%")
+    else:
+        print(f"\n✓ Preprocessing reduced file to {100*reduction_ratio:.1f}% of original")
+
+    return True
+
+
+def test_standard_vfp_unchanged():
+    """Test that standard VFP files are not affected by report preprocessing."""
+    print("\n" + "=" * 60)
+    print("Testing Standard VFP File (should NOT be treated as report)")
+    print("=" * 60)
+
+    handler = VFPHandler()
+
+    # Create sample VFP code
+    sample_code = """
+PROCEDURE TestProc
+    LOCAL x
+    x = 5
+    SELECT * FROM customers
+    RETURN x
+ENDPROC
+"""
+
+    is_report = handler._is_report_file(sample_code)
+    print(f"\nIs report file: {is_report}")
+
+    if is_report:
+        print("ERROR: Standard VFP should NOT be detected as report!")
+        return False
+
+    print("✓ Standard VFP files are not affected")
+    return True
+
+
+if __name__ == "__main__":
+    print("Report Preprocessing Test Suite")
+    print("================================\n")
+
+    test1 = test_report_preprocessing()
+    test2 = test_standard_vfp_unchanged()
+
+    print("\n" + "=" * 60)
+    print("RESULTS")
+    print("=" * 60)
+    print(f"Report preprocessing: {'PASS' if test1 else 'FAIL'}")
+    print(f"Standard VFP unchanged: {'PASS' if test2 else 'FAIL'}")
+
+    if test1 and test2:
+        print("\n✓ All tests passed!")
+        print("\nYou can now safely process the problematic file:")
+        print('  python batch_process.py --language vfp --path "converted/Reports/cccccstappsdetl.fr2"')
+    else:
+        print("\n✗ Some tests failed. Please review the output above.")

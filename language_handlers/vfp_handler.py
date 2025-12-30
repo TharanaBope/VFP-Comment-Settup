@@ -555,6 +555,11 @@ Return data in the exact Pydantic model structure specified."""
 
     def get_phase1_prompt(self, code: str, filename: str, relative_path: str) -> str:
         """Generate Phase 1 (structure analysis) prompt"""
+        # Check if this is preprocessed report content (starts with our header)
+        if code.strip().startswith('* ====') and 'REPORT FILE:' in code:
+            return self._get_report_phase1_prompt(code, filename, relative_path)
+
+        # Standard VFP code analysis
         code_for_analysis, was_sampled = self.extract_code_sample(code)
         sampling_note = "\n⚠️ Note: This is a SAMPLE of a large file. Focus on identifying structure and patterns." if was_sampled else ""
 
@@ -580,6 +585,34 @@ VFP Code:
 
 Return structured FileAnalysis object with ALL fields filled."""
 
+    def _get_report_phase1_prompt(self, code: str, filename: str, relative_path: str) -> str:
+        """Generate Phase 1 prompt for VFP report definition files."""
+        return f"""Analyze this VFP Report Definition file.
+
+File: {filename}
+Location: {relative_path}
+
+This is a FoxBin2Prg-converted VFP report (.frx → .fr2).
+The content below shows VFP expressions embedded in the report layout.
+These expressions control what data is displayed and how.
+
+Analyze the VFP expressions and return a FileAnalysis object with:
+
+1. filename: "{filename}"
+2. file_overview: 2-3 sentences explaining what data this report displays and its purpose.
+   Focus on the BUSINESS PURPOSE (e.g., "Patient appointment details report showing booking times, patient info, and procedure details")
+3. procedures: [] (reports typically don't have procedures)
+4. dependencies: List ALL database fields, tables, and custom functions referenced in the expressions.
+   Look for: field names, table names, custom functions like GetRstDt(), saytime(), etc.
+5. total_lines: {len(code.splitlines())}
+
+VFP Report Expressions:
+```
+{code}
+```
+
+Focus on explaining the BUSINESS LOGIC these expressions represent."""
+
     def get_phase2_prompt(
         self,
         chunk: str,
@@ -590,6 +623,10 @@ Return structured FileAnalysis object with ALL fields filled."""
         relative_path: str
     ) -> str:
         """Generate Phase 2 (chunk commenting) prompt"""
+        # Check if this is preprocessed report content
+        if chunk.strip().startswith('* ====') and 'REPORT FILE:' in chunk:
+            return self._get_report_phase2_prompt(chunk, file_context, filename, relative_path)
+
         line_count = len(chunk.split('\n'))
 
         # Extract dependencies for display
@@ -630,6 +667,59 @@ Return JSON with TWO fields:
 
 Return ONLY valid JSON with "file_header" and "inline_comments".
 DO NOT return the code itself."""
+
+    def _get_report_phase2_prompt(
+        self,
+        chunk: str,
+        file_context,
+        filename: str,
+        relative_path: str
+    ) -> str:
+        """Generate Phase 2 prompt for VFP report definition files."""
+        dep_str = ', '.join(file_context.dependencies[:10]) if file_context.dependencies else 'None'
+
+        return f"""Generate comments explaining each VFP expression in this report.
+
+**REPORT CONTEXT:**
+File: {filename}
+Location: {relative_path}
+Report Purpose: {file_context.file_overview}
+Database Fields/Functions: {dep_str}
+
+**TASK:**
+For each VFP expression listed below, explain:
+- What data it displays or calculates
+- Any business logic or conditions
+- Database fields or functions used
+
+Return JSON with TWO fields:
+
+1. "file_header" (object):
+   - "filename": "{filename}"
+   - "location": "{relative_path}"
+   - "purpose": ["Report definition file", "Displays: {file_context.file_overview[:100]}"]
+   - "dependencies": {file_context.dependencies[:10] if file_context.dependencies else []}
+   - "key_functions": []
+
+2. "inline_comments" (array of objects):
+   For EACH expression line (e.g., "* [Line 51] b_date"), create a comment explaining it:
+   - "insert_before_line": The line number from [Line X]
+   - "comment_lines": ["* <explanation of what this expression does>"]
+   - "context": Brief note
+
+**VFP Report Expressions:**
+```
+{chunk}
+```
+
+Example output for "* [Line 51] b_date":
+{{
+  "insert_before_line": 51,
+  "comment_lines": ["* Displays the booking/appointment date"],
+  "context": "Date field display"
+}}
+
+Return ONLY valid JSON. Explain EACH expression."""
 
     def validate_comment_syntax(self, comment: str, comment_type: str = None) -> bool:
         """Validate that comment follows VFP syntax (* or &&)"""
@@ -700,18 +790,151 @@ DO NOT return the code itself."""
 
     def preprocess_for_llm(self, code: str, config: dict = None) -> str:
         """
-        Preprocess VFP code to avoid llama.cpp tokenizer issues with OLE objects.
+        Preprocess VFP code before sending to LLM.
 
-        VFP files often contain embedded base64-encoded binary data in two formats:
+        Handles two types of preprocessing:
+        1. Report files (.fr2/.lb2): Extract only VFP expressions from XML
+        2. Standard files (.prg/.spr/.sc2/.mn2): Strip base64 OLE objects
+
+        Args:
+            code: VFP source code
+            config: Optional config settings
+
+        Returns:
+            str: Preprocessed code optimized for LLM processing
+        """
+        # Check if this is an XML-based report/label file
+        if self._is_report_file(code):
+            return self._preprocess_report_file(code, config)
+
+        # Standard preprocessing for .prg/.spr/.sc2/.mn2 files
+        return self._preprocess_standard_vfp(code, config)
+
+    def _is_report_file(self, code: str) -> bool:
+        """
+        Detect if file is an XML-based report/label definition (.fr2/.lb2).
+
+        These files are FoxBin2Prg-converted reports that are mostly XML layout
+        with VFP expressions embedded in CDATA sections.
+
+        Args:
+            code: File content
+
+        Returns:
+            bool: True if this is a report/label file
+        """
+        return '<Reportes' in code and 'FOXBIN2PRG' in code
+
+    def _extract_report_name(self, code: str) -> str:
+        """Extract the original report filename from FoxBin2Prg header."""
+        match = re.search(r'SourceFile="([^"]+)"', code)
+        if match:
+            return match.group(1)
+        return "unknown.frx"
+
+    def _extract_vfp_expressions(self, code: str) -> dict:
+        """
+        Extract non-empty VFP expressions from XML report CDATA sections.
+
+        Extracts from:
+        - <expr><![CDATA[...]]> - Field/calculation expressions
+        - <supexpr><![CDATA[...]]> - Suppression conditions
+
+        Args:
+            code: XML report content
+
+        Returns:
+            dict: {'expr': [(line_num, expression), ...], 'supexpr': [...]}
+        """
+        results = {'expr': [], 'supexpr': []}
+        lines = code.split('\n')
+
+        # Patterns for non-empty CDATA content
+        expr_pattern = re.compile(r'<expr><!\[CDATA\[(.+?)\]\]>', re.IGNORECASE)
+        supexpr_pattern = re.compile(r'<supexpr><!\[CDATA\[(.+?)\]\]>', re.IGNORECASE)
+
+        for i, line in enumerate(lines, 1):
+            # Extract <expr> content (skip printer config lines)
+            match = expr_pattern.search(line)
+            if match:
+                content = match.group(1).strip()
+                # Skip printer configuration (DRIVER=, DEVICE=, etc.)
+                if content and not content.startswith(('DRIVER=', 'DEVICE=', 'OUTPUT=', 'ORIENTATION=')):
+                    results['expr'].append((i, content))
+
+            # Extract <supexpr> content
+            match = supexpr_pattern.search(line)
+            if match and match.group(1).strip():
+                results['supexpr'].append((i, match.group(1).strip()))
+
+        return results
+
+    def _preprocess_report_file(self, code: str, config: dict = None) -> str:
+        """
+        Create condensed VFP-only view of XML report file for LLM.
+
+        Reduces 800+ lines of XML to ~50-100 lines of actual VFP expressions,
+        preventing VRAM exhaustion and focusing LLM on meaningful content.
+
+        Args:
+            code: Full XML report content
+            config: Optional config settings
+
+        Returns:
+            str: Condensed view with only VFP expressions
+        """
+        import logging
+        logger = logging.getLogger('vfp_handler')
+
+        lines = code.split('\n')
+        filename = self._extract_report_name(code)
+        expressions = self._extract_vfp_expressions(code)
+
+        expr_count = len(expressions['expr'])
+        supexpr_count = len(expressions['supexpr'])
+
+        logger.info(f"Report preprocessing: {len(lines)} lines -> {expr_count} expressions, {supexpr_count} conditions")
+
+        # Build condensed VFP view
+        result = [
+            f"* {'=' * 60}",
+            f"* REPORT FILE: {filename}",
+            f"* Type: VFP Report Definition (FoxBin2Prg format)",
+            f"* Original: {len(lines)} lines, Extracted: {expr_count} VFP expressions",
+            f"* {'=' * 60}",
+            "*",
+            "* This report contains VFP expressions embedded in XML layout.",
+            "* Below are the VFP expressions that control data display.",
+            "*",
+        ]
+
+        if expressions['expr']:
+            result.append(f"* VFP EXPRESSIONS ({expr_count} found):")
+            result.append("* " + "-" * 40)
+            for line_num, expr in expressions['expr']:
+                # Truncate very long expressions for readability
+                display_expr = expr if len(expr) <= 100 else expr[:100] + "..."
+                result.append(f"* [Line {line_num}] {display_expr}")
+            result.append("*")
+
+        if expressions['supexpr']:
+            result.append(f"* SUPPRESSION CONDITIONS ({supexpr_count} found):")
+            result.append("* " + "-" * 40)
+            for line_num, expr in expressions['supexpr']:
+                result.append(f"* [Line {line_num}] {expr}")
+            result.append("*")
+
+        result.append(f"* {'=' * 60}")
+
+        return '\n'.join(result)
+
+    def _preprocess_standard_vfp(self, code: str, config: dict = None) -> str:
+        """
+        Preprocess standard VFP code to avoid llama.cpp tokenizer issues.
+
+        Strips base64-encoded binary data from:
         1. Form files (.sc2): ActiveX/OLE controls as Value="base64..."
-        2. Report/Label files (.fr2, .lb2): Printer config as <![CDATA[base64...]]>
-
-        These long repetitive sequences (4KB-10KB) trigger a documented bug in
-        llama.cpp's RE2 regex tokenizer causing "Failed to process regex" errors.
-
-        This method strips both patterns before sending to LLM, replacing them
-        with placeholders. The original file is never modified - stripping only
-        happens in memory for LLM processing.
+        2. Menu/other files: Any long base64 CDATA sections
 
         See: https://github.com/ggml-org/llama.cpp/issues/9715
 
@@ -749,7 +972,7 @@ DO NOT return the code itself."""
             total_bytes_removed += bytes_removed_p1
             total_blobs_found += len(blobs_pattern1)
 
-        # Pattern 2: <![CDATA[[long base64 string]]]> (for .fr2/.lb2 report/label files)
+        # Pattern 2: <![CDATA[[long base64 string]]]> (for other files with binary CDATA)
         # Matches CDATA sections with base64 content of length >= threshold
         pattern2 = r'(<!\[CDATA\[)([A-Za-z0-9+/=]{' + str(threshold) + r',})(\]\]>)'
         replacement2 = r'\1[BINARY_DATA_REMOVED_FOR_LLM_PROCESSING]\3'
