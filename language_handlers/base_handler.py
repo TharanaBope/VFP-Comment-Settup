@@ -226,3 +226,29 @@ class LanguageHandler(ABC):
         Default: False (strict validation - no duplicate insertion points allowed)
         """
         return False
+
+    def preprocess_for_llm(self, code: str, config: dict = None) -> str:
+        """
+        Preprocess code before sending to LLM to avoid tokenizer issues.
+
+        Some code patterns can cause issues with LLM tokenizers:
+        - VFP: Long base64-encoded OLE object data triggers llama.cpp RE2 regex memory errors
+        - Other languages: May have similar problematic patterns
+
+        This method allows language handlers to clean/sanitize code for LLM processing
+        while preserving the original file intact. The preprocessing is temporary
+        (in-memory only) and comments are inserted back into the original unmodified code.
+
+        This is a concrete method (not abstract) with a default implementation.
+        Override in language handlers to customize behavior.
+
+        Args:
+            code: Source code to preprocess
+            config: Optional configuration dictionary with preprocessing settings
+
+        Returns:
+            str: Preprocessed code (safe for LLM tokenizer)
+
+        Default: Returns code unchanged (no preprocessing)
+        """
+        return code

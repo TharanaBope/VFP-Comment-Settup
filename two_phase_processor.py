@@ -177,8 +177,11 @@ class TwoPhaseProcessor:
             models = self.handler.get_pydantic_models()
             FileAnalysisModel = models['FileAnalysis']
 
-            # Get Phase 1 prompt from handler
-            prompt = self.handler.get_phase1_prompt(code, filename, relative_path)
+            # Preprocess code to avoid tokenizer issues (e.g., strip OLE objects in VFP)
+            preprocessed_code = self.handler.preprocess_for_llm(code, self.config)
+
+            # Get Phase 1 prompt from handler (using preprocessed code)
+            prompt = self.handler.get_phase1_prompt(preprocessed_code, filename, relative_path)
             system_prompt = self.handler.get_system_prompt()
 
             # Call generic structured generation
@@ -224,9 +227,12 @@ class TwoPhaseProcessor:
             models = self.handler.get_pydantic_models()
             ChunkCommentsModel = models['ChunkComments']
 
-            # Get Phase 2 prompt from handler
+            # Preprocess chunk to avoid tokenizer issues (e.g., strip OLE objects in VFP)
+            preprocessed_chunk = self.handler.preprocess_for_llm(chunk.content, self.config)
+
+            # Get Phase 2 prompt from handler (using preprocessed chunk)
             prompt = self.handler.get_phase2_prompt(
-                chunk=chunk.content,
+                chunk=preprocessed_chunk,
                 chunk_name=chunk.name,
                 chunk_type=chunk.chunk_type,
                 file_context=context,

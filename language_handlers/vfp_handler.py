@@ -697,3 +697,74 @@ DO NOT return the code itself."""
 
         sampled_code = '\n'.join(sample_parts)
         return sampled_code, True
+
+    def preprocess_for_llm(self, code: str, config: dict = None) -> str:
+        """
+        Preprocess VFP code to avoid llama.cpp tokenizer issues with OLE objects.
+
+        VFP files often contain embedded base64-encoded binary data in two formats:
+        1. Form files (.sc2): ActiveX/OLE controls as Value="base64..."
+        2. Report/Label files (.fr2, .lb2): Printer config as <![CDATA[base64...]]>
+
+        These long repetitive sequences (4KB-10KB) trigger a documented bug in
+        llama.cpp's RE2 regex tokenizer causing "Failed to process regex" errors.
+
+        This method strips both patterns before sending to LLM, replacing them
+        with placeholders. The original file is never modified - stripping only
+        happens in memory for LLM processing.
+
+        See: https://github.com/ggml-org/llama.cpp/issues/9715
+
+        Args:
+            code: VFP source code (potentially with base64 blobs)
+            config: Optional config with 'strip_ole_objects' and 'ole_strip_threshold'
+
+        Returns:
+            str: Preprocessed code with base64 blobs replaced by placeholders
+        """
+        # Check if stripping is enabled (default: enabled)
+        if config:
+            strip_enabled = config.get('strip_ole_objects', True)
+            threshold = config.get('ole_strip_threshold', 1000)
+        else:
+            strip_enabled = True
+            threshold = 1000
+
+        if not strip_enabled:
+            return code
+
+        cleaned_code = code
+        total_bytes_removed = 0
+        total_blobs_found = 0
+
+        # Pattern 1: Value="[long base64 string]" (for .sc2 form files)
+        # Matches base64 characters (A-Z, a-z, 0-9, +, /, =) of length >= threshold
+        pattern1 = r'(Value\s*=\s*)"([A-Za-z0-9+/=]{' + str(threshold) + r',})"'
+        replacement1 = r'\1"[OLE_BINARY_DATA_REMOVED_FOR_LLM_PROCESSING]"'
+
+        blobs_pattern1 = re.findall(pattern1, cleaned_code)
+        if blobs_pattern1:
+            bytes_removed_p1 = sum(len(match[1]) for match in blobs_pattern1)
+            cleaned_code = re.sub(pattern1, replacement1, cleaned_code)
+            total_bytes_removed += bytes_removed_p1
+            total_blobs_found += len(blobs_pattern1)
+
+        # Pattern 2: <![CDATA[[long base64 string]]]> (for .fr2/.lb2 report/label files)
+        # Matches CDATA sections with base64 content of length >= threshold
+        pattern2 = r'(<!\[CDATA\[)([A-Za-z0-9+/=]{' + str(threshold) + r',})(\]\]>)'
+        replacement2 = r'\1[BINARY_DATA_REMOVED_FOR_LLM_PROCESSING]\3'
+
+        blobs_pattern2 = re.findall(pattern2, cleaned_code)
+        if blobs_pattern2:
+            bytes_removed_p2 = sum(len(match[1]) for match in blobs_pattern2)
+            cleaned_code = re.sub(pattern2, replacement2, cleaned_code)
+            total_bytes_removed += bytes_removed_p2
+            total_blobs_found += len(blobs_pattern2)
+
+        # Log if stripping occurred
+        if cleaned_code != code:
+            import logging
+            logger = logging.getLogger('vfp_handler')
+            logger.info(f"Stripped {total_blobs_found} base64 blob(s) containing {total_bytes_removed:,} bytes of data")
+
+        return cleaned_code
